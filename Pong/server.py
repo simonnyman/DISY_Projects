@@ -1,4 +1,4 @@
-# server_player.py
+# server_zmq.py
 import pygame
 import zmq
 import time
