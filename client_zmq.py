@@ -4,7 +4,7 @@ import zmq
 import argparse
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--server", default="127.0.0.1", help="Server IP")
+parser.add_argument("--server", default="87.49.43.219", help="Server IP")
 args = parser.parse_args()
 
 # --- ZeroMQ setup
