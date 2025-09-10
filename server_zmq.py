@@ -101,7 +101,7 @@ while running:
         reset_ball(direction=1)
     if ball["x"] > WIDTH:
         scores[1] += 1
-        reset_ball(direction=-1)
+        reset_ball(direction=-1) #iuerbhuifgqenirog
 
     # --- broadcast state
     state = {
