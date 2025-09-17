@@ -39,7 +39,14 @@ ball = {"x": WIDTH/2, "y": HEIGHT/2, "vx": BALL_SPEED, "vy": 0.0}
 def reset_ball(direction=1):
     ball["x"] = WIDTH/2
     ball["y"] = HEIGHT/2
-    angle = (random.random() - 0.5) * 0.8
+
+    random_value = 0.2 + random.random() * 0.3
+    
+    # Randomly make it positive or negative
+    if random.random() < 0.5:
+        random_value = -random_value
+        
+    angle = random_value * 0.8
     ball["vx"] = BALL_SPEED * (1 if direction >= 0 else -1)
     ball["vy"] = BALL_SPEED * angle
 
@@ -88,20 +95,27 @@ while running:
         ball["vy"] = -ball["vy"]
 
     # paddle collisions
-    if ball["x"] - BALL_RADIUS <= LEFT_X + PADDLE_WIDTH:
-        if paddle_y[1] <= ball["y"] <= paddle_y[1] + PADDLE_HEIGHT:
-            ball["vx"] = abs(ball["vx"])
-    if ball["x"] + BALL_RADIUS >= RIGHT_X:
-        if paddle_y[2] <= ball["y"] <= paddle_y[2] + PADDLE_HEIGHT:
-            ball["vx"] = -abs(ball["vx"])
-
+    if LEFT_X <= ball["x"] - BALL_RADIUS <= LEFT_X + PADDLE_WIDTH:
+        if paddle_y[1] <= ball["y"] <= paddle_y[1] + PADDLE_HEIGHT/2:
+            ball["vx"] = abs(ball["vx"] * 1.03)
+            ball["vy"] = -abs(ball["vy"])
+        elif paddle_y[1] + PADDLE_HEIGHT/2 < ball["y"] <= paddle_y[1] + PADDLE_HEIGHT:
+            ball["vx"] = abs(ball["vx"] * 1.03)
+            ball["vy"] = abs(ball["vy"])
+    if RIGHT_X <= ball["x"] + BALL_RADIUS <= RIGHT_X + PADDLE_WIDTH:
+        if paddle_y[2] <= ball["y"] <= paddle_y[2] + PADDLE_HEIGHT/2:
+            ball["vx"] = -abs(ball["vx"] * 1.03)
+            ball["vy"] = -abs(ball["vy"])
+        elif paddle_y[2] + PADDLE_HEIGHT/2 < ball["y"] <= paddle_y[2] + PADDLE_HEIGHT:
+            ball["vx"] = -abs(ball["vx"] * 1.03)
+            ball["vy"] = abs(ball["vy"])
     # scoring
     if ball["x"] < 0:
         scores[2] += 1
         reset_ball(direction=1)
     if ball["x"] > WIDTH:
         scores[1] += 1
-        reset_ball(direction=-1) #iuerbhuifgqenirog
+        reset_ball(direction=-1)
 
     # --- broadcast state
     state = {
