@@ -22,14 +22,8 @@ pull_socket.bind("tcp://*:5555")   # receive client input
 pub_socket = context.socket(zmq.PUB)
 pub_socket.bind("tcp://*:5556")    # send game state
 
-print("Server running as Player 1.")
+print("Server running (headless, logic-only mode).")
 
-# --- Pygame setup (for server player control + display)
-pygame.init()
-screen = pygame.display.set_mode((WIDTH, HEIGHT))
-pygame.display.set_caption("Pong Server (Player 1)")
-clock = pygame.time.Clock()
-font = pygame.font.Font(None, 48)
 
 # --- Game state
 paddle_y = {1: (HEIGHT - PADDLE_HEIGHT) / 2, 2: (HEIGHT - PADDLE_HEIGHT) / 2}
@@ -49,40 +43,33 @@ reset_ball()
 inputs = {1: {"up": False, "down": False}, 2: {"up": False, "down": False}}
 
 tick = 0
-last_time = time.time()
+
+tick_rate = 1.0 / TICK_RATE
 running = True
 while running:
-    dt = clock.tick(60) / 1000.0
-
-    # --- handle pygame input (server = player 1)
-    for event in pygame.event.get():
-        if event.type == pygame.QUIT:
-            running = False
-    keys = pygame.key.get_pressed()
-    inputs[1]["up"] = keys[pygame.K_w]
-    inputs[1]["down"] = keys[pygame.K_s]
+    start_time = time.time()
 
     # --- handle client input (player 2)
     try:
         while True:
             msg = pull_socket.recv_json(flags=zmq.NOBLOCK)
-            if msg["type"] == "input" and msg["player"] == 2:
-                inputs[2]["up"] = msg["up"]
-                inputs[2]["down"] = msg["down"]
+            if msg["type"] == "input" and msg["player"] in (1,2):
+                inputs[msg["player"]]["up"] = msg["up"]
+                inputs[msg["player"]]["down"] = msg["down"]
     except zmq.Again:
         pass
 
     # --- update paddles
     for pid in (1,2):
         if inputs[pid]["up"]:
-            paddle_y[pid] -= PADDLE_SPEED * dt
+            paddle_y[pid] -= PADDLE_SPEED * tick_rate
         if inputs[pid]["down"]:
-            paddle_y[pid] += PADDLE_SPEED * dt
+            paddle_y[pid] += PADDLE_SPEED * tick_rate
         paddle_y[pid] = max(0, min(HEIGHT - PADDLE_HEIGHT, paddle_y[pid]))
 
     # --- update ball
-    ball["x"] += ball["vx"] * dt
-    ball["y"] += ball["vy"] * dt
+    ball["x"] += ball["vx"] * tick_rate
+    ball["y"] += ball["vy"] * tick_rate
 
     if ball["y"] - BALL_RADIUS <= 0 or ball["y"] + BALL_RADIUS >= HEIGHT:
         ball["vy"] = -ball["vy"]
@@ -113,18 +100,11 @@ while running:
     }
     pub_socket.send_json(state)
 
-    # --- render locally
-    screen.fill((0,0,0))
-    pygame.draw.rect(screen, (255,255,255), (LEFT_X, int(paddle_y[1]), PADDLE_WIDTH, PADDLE_HEIGHT))
-    pygame.draw.rect(screen, (255,255,255), (RIGHT_X, int(paddle_y[2]), PADDLE_WIDTH, PADDLE_HEIGHT))
-    pygame.draw.circle(screen, (255,255,255), (int(ball["x"]), int(ball["y"])), BALL_RADIUS)
-    pygame.draw.aaline(screen, (255,255,255), (WIDTH//2, 0), (WIDTH//2, HEIGHT))
-    s1 = font.render(str(scores[1]), True, (255,255,255))
-    s2 = font.render(str(scores[2]), True, (255,255,255))
-    screen.blit(s1, (WIDTH//4, 20))
-    screen.blit(s2, (WIDTH*3//4, 20))
-    pygame.display.flip()
+
+    # Maintain tick rate
+    elapsed = time.time() - start_time
+    sleep_time = tick_rate - elapsed
+    if sleep_time > 0:
+        time.sleep(sleep_time)
 
     tick += 1
-
-pygame.quit()
