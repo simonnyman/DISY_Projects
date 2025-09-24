@@ -21,7 +21,7 @@ pull_socket = context.socket(zmq.PULL)
 pull_socket.bind("tcp://*:5555")   # receive client input
 pub_socket = context.socket(zmq.PUB)
 pub_socket.bind("tcp://*:5556")    # send game state
-
+server_ip = pull_socket.getsockopt_string(zmq.LAST_ENDPOINT).split("//")[1].split(":")[0]
 print("Server running (headless, logic-only mode).")
 
 
@@ -39,23 +39,34 @@ def reset_ball(direction=1):
 
 reset_ball()
 
+def waiting_for_players():
+    while not enough_players:
+        pub_socket.send_json({"type": "waiting", "players_connected": 1, "server_ip": server_ip})
+
 # input states
 inputs = {1: {"up": False, "down": False}, 2: {"up": False, "down": False}}
+
+last_input_time = {1: time.time(), 2: time.time()}
 
 tick = 0
 
 tick_rate = 1.0 / TICK_RATE
 running = True
+enough_players = False
 while running:
+    # waiting_for_players()
     start_time = time.time()
-
-    # --- handle client input (player 2)
+    # for last_input in last_input_time:
+    #     if time.time() - last_input_time[last_input] > 5.0:
+    # # --- handle client input (player 2)
     try:
         while True:
             msg = pull_socket.recv_json(flags=zmq.NOBLOCK)
             if msg["type"] == "input" and msg["player"] in (1,2):
                 inputs[msg["player"]]["up"] = msg["up"]
                 inputs[msg["player"]]["down"] = msg["down"]
+                last_input_time[msg["player"]] = time.time()
+                print(f"Received input from player {msg['player']}: up={msg['up']} down={msg['down']}")
     except zmq.Again:
         pass
 
@@ -66,6 +77,7 @@ while running:
         if inputs[pid]["down"]:
             paddle_y[pid] += PADDLE_SPEED * tick_rate
         paddle_y[pid] = max(0, min(HEIGHT - PADDLE_HEIGHT, paddle_y[pid]))
+        last_input_time[pid] = time.time()
 
     # --- update ball
     ball["x"] += ball["vx"] * tick_rate
@@ -108,3 +120,5 @@ while running:
         time.sleep(sleep_time)
 
     tick += 1
+
+# TODO make server wait for players before starting the game loop
