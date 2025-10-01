@@ -48,32 +48,32 @@ player1_client_id = None  # Track which client controls player 1 (None = server)
 player2_client_id = None  # Track which client controls player 2
 
 # Get server's preferred role
-if args.role:
-    server_role = args.role
-    print(f"Server role set to: {server_role}")
-else:
-    server_role = ask_server_role()
+# if args.role:
+#     server_role = args.role
+#     print(f"Server role set to: {server_role}")
+# else:
+#     server_role = ask_server_role()
 
-if server_role == "player":
-    # Auto-assign server to Player 1 slot
-    player1_assigned = True
-    player1_client_id = "SERVER"
-    print("Server assigned as Player 1 - Use W/S keys to control paddle")
-    print(f"DEBUG: player1_assigned={player1_assigned}, player1_client_id={player1_client_id}")
-    server_player_number = 1
-else:
-    print("Server is spectating")
-    server_player_number = None
+# if server_role == "player":
+#     # Auto-assign server to Player 1 slot
+#     player1_assigned = True
+#     player1_client_id = "SERVER"
+#     print("Server assigned as Player 1 - Use W/S keys to control paddle")
+#     print(f"DEBUG: player1_assigned={player1_assigned}, player1_client_id={player1_client_id}")
+#     server_player_number = 1
+# else:
+#     print("Server is spectating")
+#     server_player_number = None
 
 # --- Pygame setup (for server player control + display)
-pygame.init()
-screen = pygame.display.set_mode((WIDTH, HEIGHT))
-if server_role == "player":
-    pygame.display.set_caption(f"Pong Server (Player {server_player_number}) - Controls: W/S")
-else:
-    pygame.display.set_caption("Pong Server (Spectator)")
+# pygame.init()
+# screen = pygame.display.set_mode((WIDTH, HEIGHT))
+# if server_role == "player":
+#     pygame.display.set_caption(f"Pong Server (Player {server_player_number}) - Controls: W/S")
+# else:
+#     pygame.display.set_caption("Pong Server (Spectator)")
 clock = pygame.time.Clock()
-font = pygame.font.Font(None, 48)
+# font = pygame.font.Font(None, 48)
 
 # --- Game state
 paddle_y = {1: (HEIGHT - PADDLE_HEIGHT) / 2, 2: (HEIGHT - PADDLE_HEIGHT) / 2}
@@ -96,16 +96,62 @@ def reset_ball(direction=1):
 
 reset_ball()
 
+# def waiting_for_players():
+#     while not enough_players:
+#         pub_socket.send_json({"type": "waiting", "players_connected": 1, "server_ip": server_ip})
+
 # input states
 inputs = {1: {"up": False, "down": False}, 2: {"up": False, "down": False}}
+
+#last_input_time = {1: time.time(), 2: time.time()}
+
+def handle_role_update(message):
+    """Handle role update requests from clients"""
+    global player1_assigned, player2_assigned, player1_client_id, player2_client_id
+    client_id = message.get("client_id")
+    new_role = message.get("role")
+    if not client_id or not new_role:
+        return  # Invalid message
+
+    if new_role == "player":
+        # Try to assign to an available player slot
+        if not player1_assigned:
+            player1_assigned = True
+            player1_client_id = client_id
+            response = {"status": "accepted", "role": "player", "player_id": 1, "client_id": client_id}
+            print(f"Client {client_id} assigned as Player 1 via role update")
+        elif not player2_assigned:
+            player2_assigned = True
+            player2_client_id = client_id
+            response = {"status": "accepted", "role": "player", "player_id": 2, "client_id": client_id}
+            print(f"Client {client_id} assigned as Player 2 via role update")
+        else:
+            # Both player slots occupied
+            spectators.add(client_id)
+            response = {"status": "accepted", "role": "spectator", "reason": "players_occupied"}
+            print(f"Client {client_id} assigned as spectator (both player slots occupied) via role update")
+    else:
+        # Wants to be spectator
+        spectators.add(client_id)
+        response = {"status": "accepted", "role": "spectator"}
+        print(f"Client {client_id} joined as spectator via role update")
+
+    last_heartbeat[client_id] = time.time()
+    rep_socket.send_json(response)
+    print("Sent response:", response)
 
 def handle_connection_request():
     """Handle incoming connection requests and assign roles"""
     global player1_assigned, player2_assigned, player1_client_id, player2_client_id
     try:
         # Check for connection requests (non-blocking)
+        #print("Checking for connection requests...")
         message = rep_socket.recv_json(flags=zmq.NOBLOCK)
+        if message["type"] == "role_update":
+            handle_role_update(message)
+            return
         if message["type"] == "connect":
+            print("Received connection request:", message)
             client_id = message["client_id"]
             preferred_role = message.get("role", "player")  # "player" or "spectator"
             
@@ -114,57 +160,64 @@ def handle_connection_request():
                 if not player1_assigned:
                     player1_assigned = True
                     player1_client_id = client_id
-                    response = {"status": "accepted", "role": "player", "player_id": 1}
+                    response = {"status": "accepted", "role": "player", "player_id": 1, "client_id": client_id}
                     print(f"Client {client_id} assigned as Player 1")
                 elif not player2_assigned:
                     player2_assigned = True
                     player2_client_id = client_id
-                    response = {"status": "accepted", "role": "player", "player_id": 2}
+                    response = {"status": "accepted", "role": "player", "player_id": 2, "client_id": client_id}
                     print(f"Client {client_id} assigned as Player 2")
                 else:
                     # Both player slots occupied
                     spectators.add(client_id)
-                    response = {"status": "accepted", "role": "spectator", "reason": "players_occupied"}
+                    response = {"status": "accepted", "role": "spectator", "reason": "players_occupied", "client_id": client_id}
                     print(f"Client {client_id} assigned as spectator (both player slots occupied)")
             else:
                 # Wants to be spectator
                 spectators.add(client_id)
-                response = {"status": "accepted", "role": "spectator"}
+                response = {"status": "accepted", "role": "spectator", "client_id": client_id}
                 print(f"Client {client_id} joined as spectator")
             
             last_heartbeat[client_id] = time.time()
             rep_socket.send_json(response)
+            print("Sent response:", response)
+        else:
+            rep_socket.send_json({"status": "error", "reason": "invalid_request"})
     except zmq.Again:
         pass
 
 tick = 0
-last_time = time.time()
+
+tick_rate = 1.0 / TICK_RATE
 running = True
+enough_players = False
+last_time = time.time()
+#handle_connection_request()  # Initial check for connections
 while running:
     dt = clock.tick(60) / 1000.0
 
     # --- handle connection requests
-    handle_connection_request()
+    #handle_connection_request()
 
     # --- handle pygame input (server local input - only if server is a player)
-    for event in pygame.event.get():
-        if event.type == pygame.QUIT:
-            running = False
+    # for event in pygame.event.get():
+    #     if event.type == pygame.QUIT:
+    #         running = False
     
     # Only process local input if server is assigned as a player and controlling a slot
-    if server_role == "player":
-        # Check if server is controlling Player 1
-        if player1_client_id == "SERVER":
-            keys = pygame.key.get_pressed()
-            if keys[pygame.K_w] or keys[pygame.K_s]:  # Debug: only print when keys pressed
-                print(f"Server input: W={keys[pygame.K_w]}, S={keys[pygame.K_s]}")
-            inputs[1]["up"] = keys[pygame.K_w]
-            inputs[1]["down"] = keys[pygame.K_s]
-        # Check if server is controlling Player 2
-        elif player2_client_id == "SERVER":
-            keys = pygame.key.get_pressed()
-            inputs[2]["up"] = keys[pygame.K_w]
-            inputs[2]["down"] = keys[pygame.K_s]
+    # if server_role == "player":
+    #     # Check if server is controlling Player 1
+    #     if player1_client_id == "SERVER":
+    #         keys = pygame.key.get_pressed()
+    #         if keys[pygame.K_w] or keys[pygame.K_s]:  # Debug: only print when keys pressed
+    #             print(f"Server input: W={keys[pygame.K_w]}, S={keys[pygame.K_s]}")
+    #         inputs[1]["up"] = keys[pygame.K_w]
+    #         inputs[1]["down"] = keys[pygame.K_s]
+    #     # Check if server is controlling Player 2
+    #     elif player2_client_id == "SERVER":
+    #         keys = pygame.key.get_pressed()
+    #         inputs[2]["up"] = keys[pygame.K_w]
+    #         inputs[2]["down"] = keys[pygame.K_s]
 
     # --- handle client input
     try:
@@ -173,13 +226,15 @@ while running:
             if msg["type"] == "input":
                 client_id = msg.get("client_id")
                 player_id = msg.get("player")
-                
+                #print("Received input message:", msg)
                 # Accept input from assigned players
                 if ((player_id == 1 and client_id == player1_client_id) or 
                     (player_id == 2 and client_id == player2_client_id)):
+                    #print("Received input message:", msg)
                     inputs[player_id]["up"] = msg["up"]
                     inputs[player_id]["down"] = msg["down"]
                     last_heartbeat[client_id] = time.time()
+                    print(f"Received input from Player {player_id} (client {client_id}): up={msg['up']} down={msg['down']}")
             elif msg["type"] == "heartbeat":
                 # Update heartbeat for any connected client
                 client_id = msg.get("client_id")
@@ -187,7 +242,12 @@ while running:
                     last_heartbeat[client_id] = time.time()
     except zmq.Again:
         pass
-
+    # --- handle new connection requests
+    try:
+        handle_connection_request()
+    except Exception as e:
+        print("Error handling connection request:", e)
+    
     # --- check for disconnected clients
     current_time = time.time()
     disconnected_clients = []
@@ -213,15 +273,19 @@ while running:
 
     # --- update paddles
     for pid in (1,2):
+        #print(inputs[pid]["up"])
         if inputs[pid]["up"]:
-            paddle_y[pid] -= PADDLE_SPEED * dt
+            paddle_y[pid] -= PADDLE_SPEED * tick_rate
+            #print(f"Paddle {pid} moving up to {paddle_y[pid]}")
         if inputs[pid]["down"]:
-            paddle_y[pid] += PADDLE_SPEED * dt
+            paddle_y[pid] += PADDLE_SPEED * tick_rate
         paddle_y[pid] = max(0, min(HEIGHT - PADDLE_HEIGHT, paddle_y[pid]))
+        #print("updated paddles")
+        #last_input_time[pid] = time.time()
 
     # --- update ball
-    ball["x"] += ball["vx"] * dt
-    ball["y"] += ball["vy"] * dt
+    ball["x"] += ball["vx"] * tick_rate
+    ball["y"] += ball["vy"] * tick_rate
 
     if ball["y"] - BALL_RADIUS <= 0 or ball["y"] + BALL_RADIUS >= HEIGHT:
         ball["vy"] = -ball["vy"]
@@ -264,18 +328,14 @@ while running:
     }
     pub_socket.send_json(state)
 
-    # --- render locally
-    screen.fill((0,0,0))
-    pygame.draw.rect(screen, (255,255,255), (LEFT_X, int(paddle_y[1]), PADDLE_WIDTH, PADDLE_HEIGHT))
-    pygame.draw.rect(screen, (255,255,255), (RIGHT_X, int(paddle_y[2]), PADDLE_WIDTH, PADDLE_HEIGHT))
-    pygame.draw.circle(screen, (255,255,255), (int(ball["x"]), int(ball["y"])), BALL_RADIUS)
-    pygame.draw.aaline(screen, (255,255,255), (WIDTH//2, 0), (WIDTH//2, HEIGHT))
-    s1 = font.render(str(scores[1]), True, (255,255,255))
-    s2 = font.render(str(scores[2]), True, (255,255,255))
-    screen.blit(s1, (WIDTH//4, 20))
-    screen.blit(s2, (WIDTH*3//4, 20))
-    pygame.display.flip()
+
+    # Maintain tick rate
+    elapsed = time.time() - last_time
+    sleep_time = tick_rate - elapsed
+    if sleep_time > 0:
+        time.sleep(sleep_time)
+    last_time = time.time()
 
     tick += 1
 
-pygame.quit()
+# TODO make server wait for players before starting the game loop
