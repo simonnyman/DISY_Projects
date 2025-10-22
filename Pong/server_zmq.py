@@ -25,7 +25,7 @@ pub_socket.bind("tcp://*:5556")    # send game state
 rep_socket = context.socket(zmq.REP)
 rep_socket.bind("tcp://*:5557")    # handle connection requests
 
-print("Server starting. You can choose your role when clients connect.")
+#print("Server starting. You can choose your role when clients connect.")
 
 # Parse command line arguments
 parser = argparse.ArgumentParser()
@@ -79,6 +79,7 @@ clock = pygame.time.Clock()
 paddle_y = {1: (HEIGHT - PADDLE_HEIGHT) / 2, 2: (HEIGHT - PADDLE_HEIGHT) / 2}
 scores = {1: 0, 2: 0}
 ball = {"x": WIDTH/2, "y": HEIGHT/2, "vx": BALL_SPEED, "vy": 0.0}
+paused = False
 
 def reset_ball(direction=1):
     ball["x"] = WIDTH/2
@@ -107,38 +108,64 @@ inputs = {1: {"up": False, "down": False}, 2: {"up": False, "down": False}}
 
 def handle_role_update(message):
     """Handle role update requests from clients"""
-    global player1_assigned, player2_assigned, player1_client_id, player2_client_id
+    global player1_assigned, player2_assigned, player1_client_id, player2_client_id, spectators
     client_id = message.get("client_id")
     new_role = message.get("role")
     if not client_id or not new_role:
-        return  # Invalid message
+        rep_socket.send_json({"status": "error", "reason": "invalid_request"})
+        return
 
+    # Helper to free a player slot if this client currently occupies it
+    def free_if_assigned(cid):
+        global player1_assigned, player2_assigned, player1_client_id, player2_client_id
+        if player1_client_id == cid:
+            player1_assigned = False
+            player1_client_id = None
+            #print(f"Freed Player 1 slot previously held by {cid}")
+        if player2_client_id == cid:
+            player2_assigned = False
+            player2_client_id = None
+            #print(f"Freed Player 2 slot previously held by {cid}")
+
+    # If client asks to be a player
     if new_role == "player":
-        # Try to assign to an available player slot
-        if not player1_assigned:
-            player1_assigned = True
-            player1_client_id = client_id
+        # If already a player, confirm their slot
+        if client_id == player1_client_id:
             response = {"status": "accepted", "role": "player", "player_id": 1, "client_id": client_id}
-            print(f"Client {client_id} assigned as Player 1 via role update")
-        elif not player2_assigned:
-            player2_assigned = True
-            player2_client_id = client_id
+            #print(f"Client {client_id} remains Player 1 via role update")
+        elif client_id == player2_client_id:
             response = {"status": "accepted", "role": "player", "player_id": 2, "client_id": client_id}
-            print(f"Client {client_id} assigned as Player 2 via role update")
+            #print(f"Client {client_id} remains Player 2 via role update")
         else:
-            # Both player slots occupied
-            spectators.add(client_id)
-            response = {"status": "accepted", "role": "spectator", "reason": "players_occupied"}
-            print(f"Client {client_id} assigned as spectator (both player slots occupied) via role update")
+            # Try to assign to an available player slot
+            if not player1_assigned:
+                player1_assigned = True
+                player1_client_id = client_id
+                spectators.discard(client_id)
+                response = {"status": "accepted", "role": "player", "player_id": 1, "client_id": client_id}
+                #print(f"Client {client_id} assigned as Player 1 via role update")
+            elif not player2_assigned:
+                player2_assigned = True
+                player2_client_id = client_id
+                spectators.discard(client_id)
+                response = {"status": "accepted", "role": "player", "player_id": 2, "client_id": client_id}
+                #print(f"Client {client_id} assigned as Player 2 via role update")
+            else:
+                # Both player slots occupied
+                spectators.add(client_id)
+                response = {"status": "accepted", "role": "spectator", "reason": "players_occupied", "client_id": client_id}
+                #print(f"Client {client_id} assigned as spectator (both player slots occupied) via role update")
+
     else:
-        # Wants to be spectator
+        # Wants to be spectator: free any player slot they might be holding
+        free_if_assigned(client_id)
         spectators.add(client_id)
-        response = {"status": "accepted", "role": "spectator"}
-        print(f"Client {client_id} joined as spectator via role update")
+        response = {"status": "accepted", "role": "spectator", "client_id": client_id}
+        #print(f"Client {client_id} joined as spectator via role update")
 
     last_heartbeat[client_id] = time.time()
     rep_socket.send_json(response)
-    print("Sent response:", response)
+    #print("Sent response:", response)
 
 def handle_connection_request():
     """Handle incoming connection requests and assign roles"""
@@ -151,7 +178,7 @@ def handle_connection_request():
             handle_role_update(message)
             return
         if message["type"] == "connect":
-            print("Received connection request:", message)
+            #print("Received connection request:", message)
             client_id = message["client_id"]
             preferred_role = message.get("role", "player")  # "player" or "spectator"
             
@@ -161,26 +188,26 @@ def handle_connection_request():
                     player1_assigned = True
                     player1_client_id = client_id
                     response = {"status": "accepted", "role": "player", "player_id": 1, "client_id": client_id}
-                    print(f"Client {client_id} assigned as Player 1")
+                    #print(f"Client {client_id} assigned as Player 1")
                 elif not player2_assigned:
                     player2_assigned = True
                     player2_client_id = client_id
                     response = {"status": "accepted", "role": "player", "player_id": 2, "client_id": client_id}
-                    print(f"Client {client_id} assigned as Player 2")
+                    #print(f"Client {client_id} assigned as Player 2")
                 else:
                     # Both player slots occupied
                     spectators.add(client_id)
                     response = {"status": "accepted", "role": "spectator", "reason": "players_occupied", "client_id": client_id}
-                    print(f"Client {client_id} assigned as spectator (both player slots occupied)")
+                    #print(f"Client {client_id} assigned as spectator (both player slots occupied)")
             else:
                 # Wants to be spectator
                 spectators.add(client_id)
                 response = {"status": "accepted", "role": "spectator", "client_id": client_id}
-                print(f"Client {client_id} joined as spectator")
+                #print(f"Client {client_id} joined as spectator")
             
             last_heartbeat[client_id] = time.time()
             rep_socket.send_json(response)
-            print("Sent response:", response)
+            #print("Sent response:", response)
         else:
             rep_socket.send_json({"status": "error", "reason": "invalid_request"})
     except zmq.Again:
@@ -192,7 +219,73 @@ tick_rate = 1.0 / TICK_RATE
 running = True
 enough_players = False
 last_time = time.time()
-#handle_connection_request()  # Initial check for connections
+
+# --- Wait for two players to connect before starting the game loop
+#print("Waiting for 2 players to connect before starting the game...")
+wait_start = time.time()
+while not (player1_assigned and player2_assigned) and running:
+    # Process any incoming input/heartbeats so clients can register
+    try:
+        while True:
+            msg = pull_socket.recv_json(flags=zmq.NOBLOCK)
+            if msg["type"] == "input":
+                # ignore inputs until players are assigned
+                client_id = msg.get("client_id")
+                last_heartbeat[client_id] = time.time()
+            elif msg["type"] == "heartbeat":
+                client_id = msg.get("client_id")
+                if client_id:
+                    last_heartbeat[client_id] = time.time()
+    except zmq.Again:
+        pass
+
+    # Handle any pending connection/role requests
+    try:
+        handle_connection_request()
+    except Exception as e:
+        print("Error while handling connection request in wait loop:", e)
+
+    # Clean up timed-out clients while waiting
+    current_time = time.time()
+    disconnected_clients = []
+    for client_id, last_time_hb in list(last_heartbeat.items()):
+        if current_time - last_time_hb > 5.0:
+            disconnected_clients.append(client_id)
+    for client_id in disconnected_clients:
+        del last_heartbeat[client_id]
+        if client_id == player1_client_id and client_id != "SERVER":
+            #print(f"Player 1 (client {client_id}) disconnected while waiting")
+            player1_assigned = False
+            player1_client_id = None
+        elif client_id == player2_client_id and client_id != "SERVER":
+            #print(f"Player 2 (client {client_id}) disconnected while waiting")
+            player2_assigned = False
+            player2_client_id = None
+        elif client_id in spectators:
+            spectators.remove(client_id)
+    
+    # Informative periodic status and broadcast waiting state so clients can display it
+    if int(time.time() - wait_start) % 1 == 0:
+        p1 = 'connected' if player1_assigned else 'open'
+        p2 = 'connected' if player2_assigned else 'open'
+        # print once per second (will naturally duplicate in console but it's fine)
+        #print(f"Waiting status: player1={p1}, player2={p2}, spectators={len(spectators)}")
+        waiting_state = {
+            "type": "waiting",
+            "message": "Waiting for players",
+            "players": {"player1": p1, "player2": p2},
+            "spectator_count": len(spectators)
+        }
+        try:
+            pub_socket.send_json(waiting_state)
+        except Exception:
+            # ignore pub errors while waiting
+            pass
+
+    time.sleep(0.1)
+
+#print("Both players connected. Starting game loop.")
+
 while running:
     dt = clock.tick(60) / 1000.0
 
@@ -234,7 +327,21 @@ while running:
                     inputs[player_id]["up"] = msg["up"]
                     inputs[player_id]["down"] = msg["down"]
                     last_heartbeat[client_id] = time.time()
-                    print(f"Received input from Player {player_id} (client {client_id}): up={msg['up']} down={msg['down']}")
+                    #print(f"Received input from Player {player_id} (client {client_id}): up={msg['up']} down={msg['down']}")
+            elif msg["type"] == "pause":
+                # pause/resume requested by a client - only accept from assigned players
+                client_id = msg.get("client_id")
+                action = msg.get("action")
+                is_player = (client_id == player1_client_id) or (client_id == player2_client_id)
+                if not is_player:
+                    print(f"Ignored pause request from non-player client {client_id}")
+                else:
+                    if action == "pause":
+                        paused = True
+                        print(f"Client {client_id} (player) requested PAUSE")
+                    elif action == "resume":
+                        paused = False
+                        print(f"Client {client_id} (player) requested RESUME")
             elif msg["type"] == "heartbeat":
                 # Update heartbeat for any connected client
                 client_id = msg.get("client_id")
@@ -271,47 +378,44 @@ while running:
             spectators.remove(client_id)
             print(f"Spectator (client {client_id}) disconnected")
 
-    # --- update paddles
-    for pid in (1,2):
-        #print(inputs[pid]["up"])
-        if inputs[pid]["up"]:
-            paddle_y[pid] -= PADDLE_SPEED * tick_rate
-            #print(f"Paddle {pid} moving up to {paddle_y[pid]}")
-        if inputs[pid]["down"]:
-            paddle_y[pid] += PADDLE_SPEED * tick_rate
-        paddle_y[pid] = max(0, min(HEIGHT - PADDLE_HEIGHT, paddle_y[pid]))
-        #print("updated paddles")
-        #last_input_time[pid] = time.time()
+    # --- update paddles and ball (skip updates if paused)
+    if not paused:
+        for pid in (1,2):
+            if inputs[pid]["up"]:
+                paddle_y[pid] -= PADDLE_SPEED * tick_rate
+            if inputs[pid]["down"]:
+                paddle_y[pid] += PADDLE_SPEED * tick_rate
+            paddle_y[pid] = max(0, min(HEIGHT - PADDLE_HEIGHT, paddle_y[pid]))
 
-    # --- update ball
-    ball["x"] += ball["vx"] * tick_rate
-    ball["y"] += ball["vy"] * tick_rate
+        # --- update ball
+        ball["x"] += ball["vx"] * tick_rate
+        ball["y"] += ball["vy"] * tick_rate
 
-    if ball["y"] - BALL_RADIUS <= 0 or ball["y"] + BALL_RADIUS >= HEIGHT:
-        ball["vy"] = -ball["vy"]
+        if ball["y"] - BALL_RADIUS <= 0 or ball["y"] + BALL_RADIUS >= HEIGHT:
+            ball["vy"] = -ball["vy"]
 
-    # paddle collisions
-    if LEFT_X <= ball["x"] - BALL_RADIUS <= LEFT_X + PADDLE_WIDTH:
-        if paddle_y[1] <= ball["y"] <= paddle_y[1] + PADDLE_HEIGHT/2:
-            ball["vx"] = abs(ball["vx"] * 1.03)
-            ball["vy"] = -abs(ball["vy"])
-        elif paddle_y[1] + PADDLE_HEIGHT/2 < ball["y"] <= paddle_y[1] + PADDLE_HEIGHT:
-            ball["vx"] = abs(ball["vx"] * 1.03)
-            ball["vy"] = abs(ball["vy"])
-    if RIGHT_X <= ball["x"] + BALL_RADIUS <= RIGHT_X + PADDLE_WIDTH:
-        if paddle_y[2] <= ball["y"] <= paddle_y[2] + PADDLE_HEIGHT/2:
-            ball["vx"] = -abs(ball["vx"] * 1.03)
-            ball["vy"] = -abs(ball["vy"])
-        elif paddle_y[2] + PADDLE_HEIGHT/2 < ball["y"] <= paddle_y[2] + PADDLE_HEIGHT:
-            ball["vx"] = -abs(ball["vx"] * 1.03)
-            ball["vy"] = abs(ball["vy"])
-    # scoring
-    if ball["x"] < 0:
-        scores[2] += 1
-        reset_ball(direction=1)
-    if ball["x"] > WIDTH:
-        scores[1] += 1
-        reset_ball(direction=-1)
+        # paddle collisions
+        if LEFT_X <= ball["x"] - BALL_RADIUS <= LEFT_X + PADDLE_WIDTH:
+            if paddle_y[1] <= ball["y"] <= paddle_y[1] + PADDLE_HEIGHT/2:
+                ball["vx"] = abs(ball["vx"] * 1.03)
+                ball["vy"] = -abs(ball["vy"])
+            elif paddle_y[1] + PADDLE_HEIGHT/2 < ball["y"] <= paddle_y[1] + PADDLE_HEIGHT:
+                ball["vx"] = abs(ball["vx"] * 1.03)
+                ball["vy"] = abs(ball["vy"])
+        if RIGHT_X <= ball["x"] + BALL_RADIUS <= RIGHT_X + PADDLE_WIDTH:
+            if paddle_y[2] <= ball["y"] <= paddle_y[2] + PADDLE_HEIGHT/2:
+                ball["vx"] = -abs(ball["vx"] * 1.03)
+                ball["vy"] = -abs(ball["vy"])
+            elif paddle_y[2] + PADDLE_HEIGHT/2 < ball["y"] <= paddle_y[2] + PADDLE_HEIGHT:
+                ball["vx"] = -abs(ball["vx"] * 1.03)
+                ball["vy"] = abs(ball["vy"])
+        # scoring
+        if ball["x"] < 0:
+            scores[2] += 1
+            reset_ball(direction=1)
+        if ball["x"] > WIDTH:
+            scores[1] += 1
+            reset_ball(direction=-1)
 
     # --- broadcast state
     state = {
@@ -320,6 +424,7 @@ while running:
         "ball": ball,
         "paddles": paddle_y,
         "scores": scores,
+        "paused": paused,
         "players": {
             "player1": "connected" if player1_assigned else "open",
             "player2": "connected" if player2_assigned else "open"

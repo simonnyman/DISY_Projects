@@ -8,6 +8,30 @@ import sys
 import time
 import uuid
 
+def cleanup_and_exit():
+    """Close sockets, shut down server (if local), and quit pygame cleanly."""
+    try:
+        pygame.quit()
+    except Exception:
+        pass
+
+    # Close sockets if they exist
+    for s in ("sub_socket", "push_socket", "req_socket"):
+        try:
+            globals()[s].close(0)
+        except Exception:
+            pass
+
+    # Stop local server subprocess if one was started
+    try:
+        if server_process:
+            #print("Shutting down local server...")
+            server_process.terminate()
+    except Exception:
+        pass
+
+    sys.exit(0)
+
 def ask_mode():
     print("Select mode:")
     print("1. Connect to existing server")
@@ -70,7 +94,7 @@ player_id = 1
 #         preferred_role = ask_role()
 def start_server():
     # Start server as subprocess
-    print("Starting server locally...")
+    #print("Starting server locally...")
     server_process = subprocess.Popen([sys.executable, "server_zmq.py"])
     server_ip = "127.0.0.1"
     # Wait a moment for server to start
@@ -87,7 +111,7 @@ def connect_locally(server_ip):
     sub_socket.setsockopt_string(zmq.SUBSCRIBE, "")
     req_socket = context.socket(zmq.REQ)
     req_socket.connect(f"tcp://{server_ip}:5557")
-    print("Connected to local server.")
+    #print("Connected to local server.")
 
     return sub_socket , push_socket , req_socket
 
@@ -113,7 +137,7 @@ def connect_client_id():
     req_socket.send_json(connection_request)
     # Wait for server response
     try:
-        print("Waiting for server response...")
+        #print("Waiting for server response...")
         poller = zmq.Poller()
         poller.register(req_socket, zmq.POLLIN)
         socks = dict(poller.poll(5000))  # wait up to 5 seconds
@@ -121,18 +145,18 @@ def connect_client_id():
             print("No response from server within timeout. Exiting.")
             return None, None
         response = req_socket.recv_json(flags=zmq.NOBLOCK)
-        print("Received response:", response)
+        #print("Received response:", response)
         if response["status"] == "accepted" and response["client_id"] == client_id and response["role"] == "player":
             assigned_role = response["role"]
             player_id = response.get("player_id", None)
-            print(f"Connected to server as {assigned_role}.")
-            if assigned_role == "player":
-                print(f"You are Player {player_id}.")
+            #print(f"Connected to server as {assigned_role}.")
+            #if assigned_role == "player":
+                #print(f"You are Player {player_id}.")
             #req_socket.close()  # Close the REQ socket after use
             return assigned_role, player_id
         elif response["status"] == "accepted" and response["client_id"] == client_id and response["role"] == "spectator":
             assigned_role = response["role"]
-            print(f"Connected to server as {assigned_role}.")
+            #print(f"Connected to server as {assigned_role}.")
             #req_socket.close()  # Close the REQ socket after use
             return assigned_role, None
         else:
@@ -142,10 +166,10 @@ def connect_client_id():
         print("No response from server. Exiting.")
         return None, None
 
-def update_role(new_role):
-    global assigned_role
-    assigned_role = new_role
-    pygame.display.set_caption(f"Pong Client (Role: {assigned_role})")
+# def update_role(new_role):
+#     global assigned_role
+#     assigned_role = new_role
+#     pygame.display.set_caption(f"Pong Client (Role: {assigned_role})")
 
 
 def post_connection_menu():
@@ -201,6 +225,256 @@ else:
 clock = pygame.time.Clock()
 font = pygame.font.Font(None, 48)
 
+# UI helpers for pause menu
+def ui_draw_panel(screen, rect):
+    """Draws a semi-transparent dark panel with rounded corners."""
+    surf = pygame.Surface(rect.size, pygame.SRCALPHA)
+    pygame.draw.rect(surf, (20, 20, 20, 235), surf.get_rect(), border_radius=16)
+    pygame.draw.rect(surf, (255, 255, 255, 25), surf.get_rect(), width=2, border_radius=16)
+    screen.blit(surf, rect.topleft)
+
+def ui_draw_btn(screen, rect, text, font_hint_size=28, hot=False):
+    """Draws a button with optional highlight."""
+    font_local = pygame.font.SysFont(None, font_hint_size)
+    base = (70,130,180) if not hot else (90,160,210)
+    surf = pygame.Surface(rect.size, pygame.SRCALPHA)
+    pygame.draw.rect(surf, base, surf.get_rect(), border_radius=12)
+    pygame.draw.rect(surf, (255,255,255,40), surf.get_rect(), width=2, border_radius=12)
+    txt = font_local.render(text, True, (255,255,255))
+    surf.blit(txt, txt.get_rect(center=surf.get_rect().center))
+    screen.blit(surf, rect.topleft)
+
+
+def show_role_menu(screen, req_socket, client_id, timeout=2000):
+    """Blocking modal to choose a role: Player or Spectator.
+    Sends a role_update via req_socket and returns a short feedback string.
+    """
+    W, H = screen.get_size()
+    font_big = pygame.font.SysFont(None, 48)
+    panel = pygame.Rect(0, 0, int(W*0.6), int(H*0.5))
+    panel.center = (W//2, H//2)
+
+    bw, bh = 220, 56
+    cx = panel.centerx
+    base_y = panel.y + 60
+    spacing = 18
+    btn_player = pygame.Rect(cx - bw//2, base_y, bw, bh)
+    btn_spectator = pygame.Rect(cx - bw//2, base_y + (bh + spacing), bw, bh)
+    btn_cancel = pygame.Rect(cx - bw//2, base_y + 2*(bh + spacing), bw, bh)
+
+    clock = pygame.time.Clock()
+    result_msg = None
+    start = pygame.time.get_ticks()
+    global assigned_role, player_id
+    while True:
+        for e in pygame.event.get():
+            if e.type == pygame.QUIT:
+                return None
+            if e.type == pygame.MOUSEBUTTONDOWN:
+                if btn_player.collidepoint(e.pos):
+                    desired = "player"
+                elif btn_spectator.collidepoint(e.pos):
+                    desired = "spectator"
+                elif btn_cancel.collidepoint(e.pos):
+                    return None
+                else:
+                    desired = None
+
+                if desired:
+                    try:
+                        req_socket.send_json({"type": "role_update", "client_id": client_id, "role": desired})
+                        poller = zmq.Poller()
+                        poller.register(req_socket, zmq.POLLIN)
+                        socks = dict(poller.poll(timeout))
+                        if req_socket in socks:
+                            resp = req_socket.recv_json()
+                            new_role = resp.get("role")
+                            if new_role:
+                                # Update local role state to match server acceptance
+                                assigned_role = new_role
+                                if new_role == "player":
+                                    player_id = resp.get("player_id", player_id)
+                                else:
+                                    player_id = None
+                                return f"Role changed to {new_role}"
+                            else:
+                                return "Role change rejected"
+                        else:
+                            return "No response from server"
+                    except Exception as ex:
+                        return f"Error: {ex}"
+
+        mx, my = pygame.mouse.get_pos()
+        # Check if mouse is over any button
+        hot_player = btn_player.collidepoint((mx,my))
+        hot_spectator = btn_spectator.collidepoint((mx,my))
+        hot_cancel = btn_cancel.collidepoint((mx,my))
+
+        # Draw
+        dim = pygame.Surface((W, H), pygame.SRCALPHA)
+        dim.fill((0,0,0,180))
+        screen.blit(dim, (0,0))
+        ui_draw_panel(screen, panel)
+        title = font_big.render("Choose Role", True, (240,240,240))
+        screen.blit(title, title.get_rect(midtop=(panel.centerx, panel.y + 8)))
+        ui_draw_btn(screen, btn_player, "Become Player", 26, hot=hot_player)
+        ui_draw_btn(screen, btn_spectator, "Become Spectator", 26, hot=hot_spectator)
+        ui_draw_btn(screen, btn_cancel, "Cancel", 26, hot=hot_cancel)
+        pygame.display.flip()
+        clock.tick(60)
+
+# Pause menu (blocking)
+def show_pause_menu(screen, push_socket, client_id, req_socket, hb_interval=2.0):
+    """
+    Displays a blocking pause menu with 'Resume' and 'Quit'.
+    Keeps sending heartbeat to server so you don't get disconnected.
+    """
+    W, H = screen.get_size()
+    font_big = pygame.font.SysFont(None, 60)
+
+    # Button layout (Resume, Change Role, Quit) - increase vertical spacing
+    bw, bh = 220, 56
+    panel = pygame.Rect(0, 0, int(W*0.6), int(H*0.5))
+    panel.center = (W//2, H//2)
+    cx, cy = panel.center
+    # base y for top button (some padding from panel top)
+    base_y = panel.y + 60
+    spacing = 18
+    btn_resume = pygame.Rect(cx - bw//2, base_y, bw, bh)
+    btn_change = pygame.Rect(cx - bw//2, base_y + (bh + spacing), bw, bh)
+    btn_quit   = pygame.Rect(cx - bw//2, base_y + 2*(bh + spacing), bw, bh)
+
+    clock = pygame.time.Clock()
+    selected = 0
+    last_hb = 0.0
+
+    # Notify server that this client is pausing
+    try:
+        if push_socket is not None:
+            if assigned_role == "player":
+                # send pause request reliably (blocking send) so server receives it
+                push_socket.send_json({"type": "pause", "client_id": client_id, "action": "pause"})
+                #print("Sent pause request to server")
+            else:
+                role_msg = "Only players can pause the game"
+                role_msg_time = pygame.time.get_ticks() / 1000.0
+    except Exception:
+        pass
+
+    global player_id
+
+    result = None
+    role_msg = None
+    role_msg_time = 0
+    while True:
+        # Send heartbeat while paused
+        now = pygame.time.get_ticks() / 1000.0
+        if push_socket is not None and (now - last_hb) >= hb_interval:
+            try:
+                push_socket.send_json({"type":"heartbeat","client_id":client_id}, flags=zmq.NOBLOCK)
+            except Exception:
+                pass
+            last_hb = now
+
+        for e in pygame.event.get():
+            if e.type == pygame.QUIT:
+                result = "quit"
+                break
+
+            if e.type == pygame.KEYDOWN:
+                if e.key in (pygame.K_ESCAPE, pygame.K_p):
+                    result = "resume"
+                    try:
+                        if push_socket is not None:
+                            if assigned_role == "player":
+                                push_socket.send_json({"type": "pause", "client_id": client_id, "action": "resume"})
+                                #print("Sent resume request to server")
+                            else:
+                                role_msg = "Only players can resume the game"
+                                role_msg_time = pygame.time.get_ticks() / 1000.0
+                    except Exception:
+                        pass
+                    break
+                if e.key in (pygame.K_UP, pygame.K_w):     selected = (selected - 1) % 3
+                if e.key in (pygame.K_DOWN, pygame.K_s):   selected = (selected + 1) % 3
+                if e.key in (pygame.K_RETURN, pygame.K_SPACE):
+                    result = "resume" if selected==0 else "quit"
+                    break
+                if e.key == pygame.K_q:
+                    result = "quit"
+                    break
+            if e.type == pygame.MOUSEBUTTONDOWN:
+                if btn_resume.collidepoint(e.pos):
+                    result = "resume"
+                    try:
+                        if push_socket is not None:
+                            if assigned_role == "player":
+                                push_socket.send_json({"type": "pause", "client_id": client_id, "action": "resume"})
+                                #print("Sent resume request to server")
+                            else:
+                                role_msg = "Only players can resume the game"
+                                role_msg_time = pygame.time.get_ticks() / 1000.0
+                    except Exception:
+                        pass
+                    break
+                if btn_change.collidepoint(e.pos):
+                    # Open role selection menu
+                    resp_msg = show_role_menu(screen, req_socket, client_id)
+                    if resp_msg:
+                        role_msg = resp_msg
+                        role_msg_time = pygame.time.get_ticks() / 1000.0
+                if btn_quit.collidepoint(e.pos):
+                    result = "quit"
+                    cleanup_and_exit()
+                    break
+
+            if result is not None:
+                return result
+
+            # Mouse hover updates selection for three buttons
+            mx, my = pygame.mouse.get_pos()
+            if btn_resume.collidepoint((mx,my)): selected = 0
+            elif btn_change.collidepoint((mx,my)): selected = 1
+            elif btn_quit.collidepoint((mx,my)): selected = 2
+
+            # (role change now handled by show_role_menu)
+
+            # Draw overlay
+            dim = pygame.Surface((W, H), pygame.SRCALPHA)
+            dim.fill((0,0,0,170))
+            screen.blit(dim, (0,0))
+            ui_draw_panel(screen, panel)
+
+            title = font_big.render("Paused", True, (240,240,240))
+            screen.blit(title, title.get_rect(midtop=(panel.centerx, panel.y+18)))
+
+            ui_draw_btn(screen, btn_resume, "Resume (Esc/P)", 28, hot=(selected==0))
+            ui_draw_btn(screen, btn_change, "Change Role", 28, hot=(selected==1))
+            ui_draw_btn(screen, btn_quit,   "Quit Game (Q)",  28, hot=(selected==2))
+
+            # Show temporary role change feedback
+            if role_msg:
+                nowt = pygame.time.get_ticks() / 1000.0
+                if nowt - role_msg_time < 3.0:
+                    rm = font_big.render(role_msg, True, (200,200,200))
+                    screen.blit(rm, rm.get_rect(midbottom=(panel.centerx, panel.bottom - 12)))
+                else:
+                    role_msg = None
+
+            pygame.display.flip()
+            clock.tick(60)
+
+            
+        # Notify server that we're resuming (or leaving pause)
+        # try:
+        #     if push_socket is not None:
+        #         push_socket.send_json({"type": "pause", "client_id": client_id, "action": "resume"})
+        #         print("Sent resume request to server")
+        # except Exception:
+        #     pass
+
+        #return result
+    
 
 # Button for starting server
 buttonServer_rect = pygame.Rect(WIDTH//2 - 100, HEIGHT//2 + 40, 200, 50)
@@ -222,6 +496,8 @@ running = True
 last_heartbeat = time.time()
 
 waiting = True
+waiting_message = None
+prev_keys = pygame.key.get_pressed()
 
 
 # Input for server IP when connecting
@@ -237,8 +513,7 @@ while running:
     while waiting:
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
-                running = False
-                waiting = False
+                cleanup_and_exit()
             elif event.type == pygame.MOUSEBUTTONDOWN:
                 if not text_input_active:
                     if buttonServer_rect.collidepoint(event.pos):
@@ -267,20 +542,27 @@ while running:
                         ip_input += event.unicode
         
 
-        # Draw menu every frame
+        # Draw menu every frame (styled to match pause UI)
         screen.fill((0,0,0))
+        panel = pygame.Rect(WIDTH//2 - 250, HEIGHT//2 - 150, 500, 300)
+        ui_draw_panel(screen, panel)
+
+        title_font = pygame.font.SysFont(None, 64)
+        title = title_font.render("Pong Game", True, (240,240,240))
+        screen.blit(title, title.get_rect(midtop=(panel.centerx, panel.y + 20)))
+
         if text_input_active:
-            pygame.draw.rect(screen, input_box_color, input_box_rect)
-            pygame.draw.rect(screen, input_border_color, input_box_rect, 2)
+            # input box styled
+            pygame.draw.rect(screen, (40,40,40), input_box_rect, border_radius=8)
+            pygame.draw.rect(screen, (200,200,200), input_box_rect, 2, border_radius=8)
             ip_surf = font.render(ip_input, True, input_text_color)
-            screen.blit(ip_surf, (input_box_rect.x + 5, input_box_rect.y + 5))
+            screen.blit(ip_surf, (input_box_rect.x + 8, input_box_rect.y + 5))
         else:
-            pygame.draw.rect(screen, buttonServer_color, buttonServer_rect)
-            screen.blit(server_text, (buttonServer_rect.x + 10, buttonServer_rect.y + 10))
-            pygame.draw.rect(screen, buttonConnect_color, buttonConnect_rect)
-            screen.blit(connect_text, (buttonConnect_rect.x + 10, buttonConnect_rect.y + 10))
+            ui_draw_btn(screen, buttonConnect_rect, "Connect to Server", 30, hot=False)
+            ui_draw_btn(screen, buttonServer_rect,  "Start Local Server", 30, hot=False)
 
         pygame.display.flip()
+
     dt = clock.tick(60) / 1000.0
     current_time = time.time()
 
@@ -293,9 +575,15 @@ while running:
     try:
         while True:
             msg = sub_socket.recv_json(flags=zmq.NOBLOCK)
-            print
+            # print received messages for debugging
+            #print(msg)
             if msg["type"] == "state":
                 remote_state = msg
+                # clear any waiting message when a real game state arrives
+                waiting_message = None
+            elif msg["type"] == "waiting":
+                # server is waiting for players - display provided message
+                waiting_message = msg.get("message", "Waiting for players")
     except zmq.Again:
         pass
 
@@ -303,17 +591,20 @@ while running:
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
             running = False
-    
-        # Only handle input if we're a player
+
+            # Open pause menu with ESC or P (only after the waiting screen)
+        # Pause is handled via edge-detection below (using pygame.key.get_pressed())
+        # to avoid duplicate triggers from both KEYDOWN events and state polling.
+
+            # Only handle paddle input if we're a player
         if assigned_role == "player":
             keys = pygame.key.get_pressed()
-            # Use different controls for Player 1 vs Player 2
             if keys:
                 if player_id == 1:
                     up, down = keys[pygame.K_w], keys[pygame.K_s]
                 else:  # player_id == 2
                     up, down = keys[pygame.K_UP], keys[pygame.K_DOWN]
-                
+
                 push_socket.send_json({
                     "type": "input",
                     "client_id": client_id,
@@ -321,7 +612,25 @@ while running:
                     "up": up,
                     "down": down
                 })
-                print(f"Sent input: up={up}, down={down}, client_id={client_id}, player_id={player_id}")
+    
+        # Only handle input if we're a player
+        # if assigned_role == "player":
+        #     keys = pygame.key.get_pressed()
+        #     # Use different controls for Player 1 vs Player 2
+        #     if keys:
+        #         if player_id == 1:
+        #             up, down = keys[pygame.K_w], keys[pygame.K_s]
+        #         else:  # player_id == 2
+        #             up, down = keys[pygame.K_UP], keys[pygame.K_DOWN]
+                
+        #         push_socket.send_json({
+        #             "type": "input",
+        #             "client_id": client_id,
+        #             "player": player_id,
+        #             "up": up,
+        #             "down": down
+        #         })
+        #         print(f"Sent input: up={up}, down={down}, client_id={client_id}, player_id={player_id}")
 
     # --- render
     screen.fill((0,0,0))
@@ -366,13 +675,34 @@ while running:
             controls_surf = pygame.font.Font(None, 24).render(controls_text, True, (150,150,150))
             screen.blit(controls_surf, (10, HEIGHT-25))
     else:
-        text = font.render("Waiting for server...", True, (255,255,255))
-        screen.blit(text, (WIDTH//4, HEIGHT//2))
+        # Prefer server-provided waiting message if available
+        msg_text = waiting_message if waiting_message else "Waiting for server..."
+        text = font.render(msg_text, True, (255,255,255))
+        # center the message horizontally
+        text_rect = text.get_rect(center=(WIDTH//2, HEIGHT//2))
+        screen.blit(text, text_rect)
 
     pygame.display.flip()
+
+    # Edge-detect ESC/P press to open pause menu (in case KEYDOWN was missed)
+    try:
+        keys_now = pygame.key.get_pressed()
+        esc_now = keys_now[pygame.K_ESCAPE]
+        p_now = keys_now[pygame.K_p]
+        esc_prev = prev_keys[pygame.K_ESCAPE]
+        p_prev = prev_keys[pygame.K_p]
+        if not waiting and ((esc_now and not esc_prev) or (p_now and not p_prev)):
+            result = show_pause_menu(screen, push_socket, client_id, req_socket)
+            if result == "quit":
+                cleanup_and_exit()
+        prev_keys = keys_now
+    except Exception:
+        # fallback: ignore input detection errors
+        prev_keys = pygame.key.get_pressed()
 
 
 pygame.quit()
 if server_process:
     print("Shutting down local server...")
     server_process.terminate()
+    
