@@ -193,11 +193,14 @@ def post_connection_menu():
                     chosen_role = "spectator"
                     #update_role(chosen_role)
                     menu_running = False
+        mx, my = pygame.mouse.get_pos()
+        hot_play = play_rect.collidepoint((mx,my))
+        hot_spectate = spectate_rect.collidepoint((mx,my))
+
         screen.fill((0,0,0))
-        pygame.draw.rect(screen, (70,130,180), play_rect)
-        screen.blit(play_text, (play_rect.x + 40, play_rect.y + 10))
-        pygame.draw.rect(screen, (70,130,180), spectate_rect)
-        screen.blit(spectate_text, (spectate_rect.x + 20, spectate_rect.y + 10))
+        ui_draw_panel(screen, pygame.Rect(WIDTH//2 - 150, HEIGHT//2 - 100, 300, 200))
+        ui_draw_btn(screen, play_rect, "Play", hot=hot_play)
+        ui_draw_btn(screen, spectate_rect, "Spectate", hot=hot_spectate)
         pygame.display.flip()
     return chosen_role
 
@@ -541,7 +544,10 @@ while running:
                     if len(ip_input) < 30 and (event.unicode.isdigit() or event.unicode == '.' or event.unicode == ':'):
                         ip_input += event.unicode
         
-
+        mx, my = pygame.mouse.get_pos()
+        hot_connect = buttonConnect_rect.collidepoint((mx,my))
+        hot_server = buttonServer_rect.collidepoint((mx,my))
+        
         # Draw menu every frame (styled to match pause UI)
         screen.fill((0,0,0))
         panel = pygame.Rect(WIDTH//2 - 250, HEIGHT//2 - 150, 500, 300)
@@ -558,8 +564,8 @@ while running:
             ip_surf = font.render(ip_input, True, input_text_color)
             screen.blit(ip_surf, (input_box_rect.x + 8, input_box_rect.y + 5))
         else:
-            ui_draw_btn(screen, buttonConnect_rect, "Connect to Server", 30, hot=False)
-            ui_draw_btn(screen, buttonServer_rect,  "Start Local Server", 30, hot=False)
+            ui_draw_btn(screen, buttonConnect_rect, "Connect to Server", 30, hot=hot_connect)
+            ui_draw_btn(screen, buttonServer_rect,  "Start Local Server", 30, hot=hot_server)
 
         pygame.display.flip()
 
