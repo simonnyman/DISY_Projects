@@ -70,7 +70,7 @@ func displayConcurrencyAnalysis(sim *simulator.Simulator) {
 	concurrentPairs := sim.CountConcurrentEvents()
 
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-	fmt.Println("Concurrency Analysis (Vector Clock Advantage)")
+	fmt.Println("Concurrency Analysis")
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 	fmt.Printf("Concurrent pairs:  %6d\n", concurrentPairs)
 	fmt.Printf("Total pairs:       %6d\n", totalPairs)
