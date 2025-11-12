@@ -89,8 +89,8 @@ func TestReceiveMessage(t *testing.T) {
 
 	// Send and wait for receive
 	sim.sendMessage(0, 1)
-	time.Sleep(20 * time.Millisecond)
-
+	msg := <-sim.Processes[1].inbox
+	sim.receiveMessage(1, msg)
 	// P1 should have received
 	if len(sim.Processes[1].Events) == 0 {
 		t.Fatal("P1 should have received message")
@@ -133,7 +133,10 @@ func TestGetStatistics(t *testing.T) {
 
 	sim.generateLocalEvent(0)
 	sim.sendMessage(0, 1)
-	time.Sleep(20 * time.Millisecond)
+
+	// Manually process the inbox since we're not running the full simulation
+	msg := <-sim.Processes[1].inbox
+	sim.receiveMessage(1, msg)
 
 	stats := sim.GetStatistics()
 
@@ -178,8 +181,8 @@ func TestVectorClockSynchronization(t *testing.T) {
 
 	// P0: send to P1
 	sim.sendMessage(0, 1) // P0: [2, 0]
-
-	time.Sleep(20 * time.Millisecond)
+	msg := <-sim.Processes[1].inbox
+	sim.receiveMessage(1, msg)
 
 	// P1 should have synchronized vector clock
 	receiveEvent := sim.Processes[1].Events[0]
@@ -199,10 +202,12 @@ func TestMessageChain(t *testing.T) {
 
 	// Create a message chain: P0 → P1 → P2
 	sim.sendMessage(0, 1) // P0: [1, 0, 0]
-	time.Sleep(20 * time.Millisecond)
+	msg := <-sim.Processes[1].inbox
+	sim.receiveMessage(1, msg)
 
 	sim.sendMessage(1, 2) // P1: [1, 2, 0] (after receiving from P0)
-	time.Sleep(20 * time.Millisecond)
+	msg = <-sim.Processes[2].inbox
+	sim.receiveMessage(2, msg)
 
 	// P2 should have transitive knowledge
 	if len(sim.Processes[2].Events) == 0 {
@@ -228,6 +233,13 @@ func TestBroadcastPattern(t *testing.T) {
 	sim.sendMessage(0, 2)
 	sim.sendMessage(0, 3)
 
+	msg := <-sim.Processes[1].inbox
+	sim.receiveMessage(1, msg)
+	msg = <-sim.Processes[2].inbox
+	sim.receiveMessage(2, msg)
+	msg = <-sim.Processes[3].inbox
+	sim.receiveMessage(3, msg)
+
 	time.Sleep(30 * time.Millisecond)
 
 	// All other processes should have received
@@ -243,9 +255,12 @@ func TestCausalOrderingPreserved(t *testing.T) {
 
 	// P0 does two sends
 	sim.sendMessage(0, 1) // msg0: [1, 0]
-	sim.sendMessage(0, 1) // msg1: [2, 0]
+	msg := <-sim.Processes[1].inbox
+	sim.receiveMessage(1, msg)
 
-	time.Sleep(30 * time.Millisecond)
+	sim.sendMessage(0, 1) // msg1: [2, 0]
+	msg = <-sim.Processes[1].inbox
+	sim.receiveMessage(1, msg)
 
 	// P1 should receive both in order
 	if len(sim.Processes[1].Events) != 2 {
@@ -333,5 +348,100 @@ func TestProcessStatistics(t *testing.T) {
 
 	if p0Stats["send_events"].(int) != 1 {
 		t.Errorf("P0 should have 1 send event, got %d", p0Stats["send_events"])
+	}
+}
+
+// Test helper functions from analysis.go
+func TestHappenedBefore(t *testing.T) {
+	sim := NewSimulator(2)
+
+	// Create causal chain
+	sim.sendMessage(0, 1) // P0: [1, 0]
+	msg := <-sim.Processes[1].inbox
+	sim.receiveMessage(1, msg) // P1: [1, 1]
+	sim.sendMessage(1, 0)      // P1: [1, 2]
+
+	// Event 0 should happen before event 2
+	if !HappenedBefore(sim.Events[0].VectorTime, sim.Events[2].VectorTime) {
+		t.Error("First send should happen before second send")
+	}
+
+	// Event 2 should NOT happen before event 0
+	if HappenedBefore(sim.Events[2].VectorTime, sim.Events[0].VectorTime) {
+		t.Error("Later event should not happen before earlier event")
+	}
+}
+
+func TestAreEqual(t *testing.T) {
+	v1 := []int64{1, 2, 3}
+	v2 := []int64{1, 2, 3}
+	v3 := []int64{1, 2, 4}
+
+	if !AreEqual(v1, v2) {
+		t.Error("Identical vector clocks should be equal")
+	}
+
+	if AreEqual(v1, v3) {
+		t.Error("Different vector clocks should not be equal")
+	}
+}
+
+// Test edge cases
+func TestEmptySimulator(t *testing.T) {
+	sim := NewSimulator(1)
+
+	stats := sim.GetStatistics()
+
+	if stats["total_events"].(int) != 0 {
+		t.Errorf("Empty simulator should have 0 events, got %d", stats["total_events"])
+	}
+
+	concurrent := sim.CountConcurrentEvents()
+	if concurrent != 0 {
+		t.Errorf("Empty simulator should have 0 concurrent events, got %d", concurrent)
+	}
+}
+
+func TestSingleProcess(t *testing.T) {
+	sim := NewSimulator(1)
+
+	sim.generateLocalEvent(0)
+	sim.generateLocalEvent(0)
+
+	// Single process events are all causally ordered
+	concurrent := sim.CountConcurrentEvents()
+	if concurrent != 0 {
+		t.Errorf("Single process should have 0 concurrent events, got %d", concurrent)
+	}
+}
+
+// Test simulation with low probabilities (tests the "do nothing" branch)
+func TestSimulationLowProbability(t *testing.T) {
+	sim := NewSimulator(2)
+
+	// Very low probabilities - most ticks will do nothing
+	sim.RunSimulation(50*time.Millisecond, 0.01, 0.01)
+
+	// Should still potentially generate some events
+	stats := sim.GetStatistics()
+	// We don't assert events must occur since probabilities are low
+	// This test ensures the do-nothing path works
+	_ = stats
+}
+
+// Test that ensures the case where toID == processID is handled
+func TestSimulationSelfSendPrevention(t *testing.T) {
+	sim := NewSimulator(1)
+
+	// With only 1 process, all send attempts will have toID == processID
+	// and should be skipped
+	sim.RunSimulation(50*time.Millisecond, 0.0, 1.0)
+
+	stats := sim.GetStatistics()
+	sendEvents := stats["send_events"].(int)
+
+	// Should have 0 sends because process can't send to itself
+	if sendEvents != 0 {
+		t.Errorf("Single process should not be able to send to itself, got %d sends", sendEvents)
 	}
 }

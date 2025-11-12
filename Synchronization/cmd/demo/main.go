@@ -13,7 +13,7 @@ const (
 	simulationTime  = 2 * time.Second // seconds the simulation runs
 	localEventProb  = 0.3             // probability of local event
 	sendEventProb   = 0.4             // probability of send event
-	sampleEventsMax = 5               // sample events to show per process
+	sampleEventsMax = 20              // sample events to show per process
 )
 
 func main() {
