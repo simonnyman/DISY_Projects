@@ -2,22 +2,51 @@ package simulator
 
 import vector "github.com/simonnyman/DISY_Projects/Synchronization/vectorCustom"
 
-// returns statistics about the simulation
+// returns detailed statistics for each process
+func (s *Simulator) GetProcessStatistics() []map[string]interface{} {
+	stats := make([]map[string]interface{}, s.NumProcesses)
+
+	for i := 0; i < s.NumProcesses; i++ {
+		p := s.Processes[i]
+		local, send, receive := 0, 0, 0
+
+		for _, e := range p.Events {
+			switch e.EventType {
+			case "local":
+				local++
+			case "send":
+				send++
+			case "receive":
+				receive++
+			}
+		}
+
+		stats[i] = map[string]interface{}{
+			"process_id":     i,
+			"total_events":   len(p.Events),
+			"local_events":   local,
+			"send_events":    send,
+			"receive_events": receive,
+		}
+	}
+
+	return stats
+}
+
+// returns aggregate statistics across all processes
 func (s *Simulator) GetStatistics() map[string]interface{} {
-	totalEvents := len(s.Events)
+	processStats := s.GetProcessStatistics()
+
+	totalEvents := 0
 	localEvents := 0
 	sendEvents := 0
 	receiveEvents := 0
 
-	for _, e := range s.Events {
-		switch e.EventType {
-		case "local":
-			localEvents++
-		case "send":
-			sendEvents++
-		case "receive":
-			receiveEvents++
-		}
+	for _, pStats := range processStats {
+		totalEvents += pStats["total_events"].(int)
+		localEvents += pStats["local_events"].(int)
+		sendEvents += pStats["send_events"].(int)
+		receiveEvents += pStats["receive_events"].(int)
 	}
 
 	return map[string]interface{}{

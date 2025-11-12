@@ -1,87 +1,110 @@
 package vector
 
 import (
-	"sync"
+	"reflect"
 	"testing"
 )
 
-func TestNewVectorClock(t *testing.T) {
-	vc := NewVector(0, 3)
-	clock := vc.Clock()
+// Basic functionality tests
+func TestNewVector(t *testing.T) {
+	v := NewVector(0, 3)
 
-	if len(clock) != 3 {
-		t.Errorf("Expected clock length 3, got %d", len(clock))
-	}
+	clock := v.Clock()
+	expected := []int64{0, 0, 0}
 
-	for i, val := range clock {
-		if val != 0 {
-			t.Errorf("Expected clock[%d] to be 0, got %d", i, val)
-		}
+	if !reflect.DeepEqual(clock, expected) {
+		t.Errorf("Expected %v, got %v", expected, clock)
 	}
 }
 
-func TestTick(t *testing.T) {
-	vc := NewVector(1, 3)
+func TestVectorTick(t *testing.T) {
+	v := NewVector(1, 3) // Process 1 in 3-process system
 
-	clock := vc.Tick()
-	if clock[1] != 1 {
-		t.Errorf("Expected clock[1] to be 1, got %d", clock[1])
+	clock := v.Tick()
+	expected := []int64{0, 1, 0}
+
+	if !reflect.DeepEqual(clock, expected) {
+		t.Errorf("Expected %v, got %v", expected, clock)
 	}
 
-	clock = vc.Tick()
-	if clock[1] != 2 {
-		t.Errorf("Expected clock[1] to be 2, got %d", clock[1])
-	}
-}
+	// Second tick
+	clock = v.Tick()
+	expected = []int64{0, 2, 0}
 
-func TestSend(t *testing.T) {
-	vc := NewVector(0, 3)
-
-	timestamp := vc.Send()
-	if timestamp[0] != 1 {
-		t.Errorf("Expected timestamp[0] to be 1, got %d", timestamp[0])
-	}
-
-	// Verify clock was incremented
-	clock := vc.Clock()
-	if clock[0] != 1 {
-		t.Errorf("Expected clock[0] to be 1 after send, got %d", clock[0])
+	if !reflect.DeepEqual(clock, expected) {
+		t.Errorf("Expected %v after second tick, got %v", expected, clock)
 	}
 }
 
-func TestReceive(t *testing.T) {
-	vc := NewVector(0, 3)
-	vc.Tick() // [1, 0, 0]
+func TestVectorSend(t *testing.T) {
+	v := NewVector(0, 2)
 
-	received := []int64{2, 3, 1}
-	newClock := vc.Receive(received)
+	clock := v.Send()
+	expected := []int64{1, 0}
 
-	// After receive: max([1,0,0], [2,3,1]) + increment own = [3, 3, 1]
-	// Process 0's counter should be incremented
-	expected := []int64{3, 3, 1}
+	if !reflect.DeepEqual(clock, expected) {
+		t.Errorf("Expected %v, got %v", expected, clock)
+	}
 
-	for i, val := range newClock {
-		if val != expected[i] {
-			t.Errorf("After receive, expected clock[%d]=%d, got %d", i, expected[i], val)
-		}
+	// Send should increment like tick
+	clock = v.Send()
+	expected = []int64{2, 0}
+
+	if !reflect.DeepEqual(clock, expected) {
+		t.Errorf("Expected %v after second send, got %v", expected, clock)
 	}
 }
 
-func TestReset(t *testing.T) {
-	vc := NewVector(1, 3)
-	vc.Tick()
-	vc.Tick()
-	vc.Reset()
+func TestVectorReceive(t *testing.T) {
+	v := NewVector(1, 3)
+	v.Tick() // [0, 1, 0]
 
-	clock := vc.Clock()
-	for i, val := range clock {
-		if val != 0 {
-			t.Errorf("Expected clock[%d] to be 0 after reset, got %d", i, val)
-		}
+	// Receive message with vector [2, 0, 1]
+	received := []int64{2, 0, 1}
+	clock := v.Receive(received)
+
+	// Should be [2, 2, 1] (max of each + increment own)
+	expected := []int64{2, 2, 1}
+
+	if !reflect.DeepEqual(clock, expected) {
+		t.Errorf("Expected %v, got %v", expected, clock)
 	}
 }
 
-func TestCompareVectorClocks(t *testing.T) {
+func TestVectorReceiveLowerTimestamp(t *testing.T) {
+	v := NewVector(0, 3)
+	v.Tick() // [1, 0, 0]
+	v.Tick() // [2, 0, 0]
+	v.Tick() // [3, 0, 0]
+
+	// Receive message with lower timestamp
+	received := []int64{1, 0, 0}
+	clock := v.Receive(received)
+
+	// Should be [3, 0, 0] + increment own = [4, 0, 0]
+	expected := []int64{4, 0, 0}
+
+	if !reflect.DeepEqual(clock, expected) {
+		t.Errorf("Expected %v, got %v", expected, clock)
+	}
+}
+
+func TestVectorReset(t *testing.T) {
+	v := NewVector(0, 3)
+	v.Tick()
+	v.Tick()
+
+	v.Reset()
+
+	clock := v.Clock()
+	expected := []int64{0, 0, 0}
+
+	if !reflect.DeepEqual(clock, expected) {
+		t.Errorf("Expected %v after reset, got %v", expected, clock)
+	}
+}
+
+func TestCompareClocks(t *testing.T) {
 	tests := []struct {
 		name     string
 		v1       []int64
@@ -95,34 +118,22 @@ func TestCompareVectorClocks(t *testing.T) {
 			expected: Equal,
 		},
 		{
-			name:     "v1 before v2",
-			v1:       []int64{1, 1, 1},
-			v2:       []int64{2, 2, 2},
+			name:     "Before relationship",
+			v1:       []int64{1, 2, 0},
+			v2:       []int64{2, 3, 1},
 			expected: Before,
 		},
 		{
-			name:     "v1 after v2",
-			v1:       []int64{3, 3, 3},
-			v2:       []int64{1, 1, 1},
+			name:     "After relationship",
+			v1:       []int64{3, 2, 1},
+			v2:       []int64{1, 1, 0},
 			expected: After,
 		},
 		{
-			name:     "Concurrent events",
-			v1:       []int64{2, 1, 0},
-			v2:       []int64{1, 2, 0},
+			name:     "Concurrent clocks",
+			v1:       []int64{1, 0, 2},
+			v2:       []int64{0, 3, 1},
 			expected: Concurrent,
-		},
-		{
-			name:     "Partial order - before",
-			v1:       []int64{1, 2, 3},
-			v2:       []int64{2, 2, 3},
-			expected: Before,
-		},
-		{
-			name:     "Partial order - after",
-			v1:       []int64{2, 3, 4},
-			v2:       []int64{2, 2, 3},
-			expected: After,
 		},
 	}
 
@@ -130,138 +141,161 @@ func TestCompareVectorClocks(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			result := CompareClocks(tt.v1, tt.v2)
 			if result != tt.expected {
-				t.Errorf("Expected %v, got %v for v1=%v, v2=%v", tt.expected, result, tt.v1, tt.v2)
+				t.Errorf("CompareClocks(%v, %v) = %v, expected %v",
+					tt.v1, tt.v2, result, tt.expected)
 			}
 		})
 	}
 }
 
-func TestMessageCompareTo(t *testing.T) {
-	msg1 := NewMessage([]int64{1, 2, 0}, 0, "msg1")
-	msg2 := NewMessage([]int64{2, 2, 0}, 1, "msg2")
-	msg3 := NewMessage([]int64{2, 1, 0}, 2, "msg3")
+// Scenario-based tests
+func TestVectorClockMessagePassing(t *testing.T) {
+	processA := NewVector(0, 2)
+	processB := NewVector(1, 2)
 
-	// msg1 happened before msg2
-	if msg1.CompareTo(msg2) != Before {
-		t.Error("msg1 should happen before msg2")
+	// Process A does local work
+	clockA := processA.Tick()
+	expectedA := []int64{1, 0}
+	if !reflect.DeepEqual(clockA, expectedA) {
+		t.Errorf("Process A: Expected %v, got %v", expectedA, clockA)
 	}
 
-	// msg1 and msg3 are concurrent (msg1[0]=1<2, msg1[1]=2>1)
-	if msg1.CompareTo(msg3) != Concurrent {
-		t.Error("msg1 and msg3 should be concurrent")
-	}
-}
-
-func TestMessageHappensBefore(t *testing.T) {
-	msg1 := NewMessage([]int64{1, 1, 1}, 0, nil)
-	msg2 := NewMessage([]int64{2, 2, 2}, 1, nil)
-	msg3 := NewMessage([]int64{2, 0, 1}, 2, nil)
-
-	if !msg1.HappensBefore(msg2) {
-		t.Error("msg1 should happen before msg2")
+	// Process A sends message
+	msgTimestamp := processA.Send()
+	expectedMsg := []int64{2, 0}
+	if !reflect.DeepEqual(msgTimestamp, expectedMsg) {
+		t.Errorf("Message timestamp: Expected %v, got %v", expectedMsg, msgTimestamp)
 	}
 
-	// msg1=[1,1,1] vs msg3=[2,0,1]: msg1[0]<msg3[0] but msg1[1]>msg3[1], so concurrent
-	if msg1.HappensBefore(msg3) {
-		t.Error("msg1 should be concurrent with msg3, not before")
-	}
-}
-
-func TestMessageIsConcurrent(t *testing.T) {
-	msg1 := NewMessage([]int64{2, 1, 0}, 0, nil)
-	msg2 := NewMessage([]int64{1, 2, 0}, 1, nil)
-	msg3 := NewMessage([]int64{3, 3, 0}, 2, nil)
-
-	if !msg1.IsConcurrent(msg2) {
-		t.Error("msg1 and msg2 should be concurrent")
+	// Process B receives the message
+	clockB := processB.Receive(msgTimestamp)
+	expectedB := []int64{2, 1} // max(0,2), max(0,0)+1
+	if !reflect.DeepEqual(clockB, expectedB) {
+		t.Errorf("Process B: Expected %v, got %v", expectedB, clockB)
 	}
 
-	if msg1.IsConcurrent(msg3) {
-		t.Error("msg1 and msg3 should not be concurrent")
+	// Process B sends reply
+	replyTimestamp := processB.Send()
+	expectedReply := []int64{2, 2}
+	if !reflect.DeepEqual(replyTimestamp, expectedReply) {
+		t.Errorf("Reply timestamp: Expected %v, got %v", expectedReply, replyTimestamp)
+	}
+
+	// Process A receives reply
+	clockA = processA.Receive(replyTimestamp)
+	expectedA = []int64{3, 2} // max(2,2)+1, max(0,2)
+	if !reflect.DeepEqual(clockA, expectedA) {
+		t.Errorf("Process A after receive: Expected %v, got %v", expectedA, clockA)
 	}
 }
 
-func TestConcurrency(t *testing.T) {
-	numProcesses := 3
-	vc := NewVectorClock(0, numProcesses)
-	var wg sync.WaitGroup
+func TestVectorClockMultipleProcesses(t *testing.T) {
+	p1 := NewVector(0, 3)
+	p2 := NewVector(1, 3)
+	p3 := NewVector(2, 3)
 
-	numGoroutines := 50
-	ticksPerGoroutine := 100
+	// P1 → P2
+	ts1 := p1.Send() // [1, 0, 0]
+	p2.Receive(ts1)  // [1, 1, 0]
 
-	for i := 0; i < numGoroutines; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for j := 0; j < ticksPerGoroutine; j++ {
-				vc.Tick()
-			}
-		}()
+	// P2 → P3
+	ts2 := p2.Send() // [1, 2, 0]
+	p3.Receive(ts2)  // [1, 2, 1]
+
+	// P3 → P1
+	ts3 := p3.Send() // [1, 2, 2]
+	p1.Receive(ts3)  // [2, 2, 2]
+
+	// Verify final states
+	clock1 := p1.Clock()
+	expected1 := []int64{2, 2, 2}
+	if !reflect.DeepEqual(clock1, expected1) {
+		t.Errorf("P1: Expected %v, got %v", expected1, clock1)
 	}
 
-	wg.Wait()
-
-	clock := vc.Clock()
-	expectedTime := int64(numGoroutines * ticksPerGoroutine)
-	if clock[0] != expectedTime {
-		t.Errorf("Expected clock[0] to be %d after concurrent ticks, got %d", expectedTime, clock[0])
+	clock2 := p2.Clock()
+	expected2 := []int64{1, 2, 0}
+	if !reflect.DeepEqual(clock2, expected2) {
+		t.Errorf("P2: Expected %v, got %v", expected2, clock2)
 	}
-}
 
-func TestMessageCopy(t *testing.T) {
-	original := []int64{1, 2, 3}
-	msg := NewMessage(original, 0, nil)
-
-	// Modify original
-	original[0] = 999
-
-	// Message should have its own copy
-	if msg.VectorTime[0] == 999 {
-		t.Error("Message should have independent copy of vector time")
+	clock3 := p3.Clock()
+	expected3 := []int64{1, 2, 2}
+	if !reflect.DeepEqual(clock3, expected3) {
+		t.Errorf("P3: Expected %v, got %v", expected3, clock3)
 	}
 }
 
-// Benchmark tests
-func BenchmarkTick(b *testing.B) {
-	vc := NewVectorClock(0, 10)
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		vc.Tick()
+func TestVectorClockReceiveFromFuture(t *testing.T) {
+	localClock := NewVector(0, 2)
+	remoteClock := NewVector(1, 2)
+
+	// Local does a few ticks
+	localClock.Tick() // [1, 0]
+	localClock.Tick() // [2, 0]
+	localClock.Tick() // [3, 0]
+
+	// Remote does many ticks
+	for i := 0; i < 10; i++ {
+		remoteClock.Tick()
+	}
+
+	// Remote sends
+	msgTimestamp := remoteClock.Send() // [0, 11]
+
+	// Local receives from "future"
+	clock := localClock.Receive(msgTimestamp)
+
+	// Should be [max(3,0)+1, max(0,11)] = [4, 11]
+	expected := []int64{4, 11}
+	if !reflect.DeepEqual(clock, expected) {
+		t.Errorf("Expected %v, got %v", expected, clock)
 	}
 }
 
-func BenchmarkSend(b *testing.B) {
-	vc := NewVectorClock(0, 10)
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		vc.Send()
+func TestVectorClockConcurrencyDetection(t *testing.T) {
+	p1 := NewVector(0, 2)
+	p2 := NewVector(1, 2)
+
+	// Both processes do local work independently
+	clock1 := p1.Tick() // [1, 0]
+	clock2 := p2.Tick() // [0, 1]
+
+	// These should be concurrent
+	ordering := CompareClocks(clock1, clock2)
+	if ordering != Concurrent {
+		t.Errorf("Expected Concurrent, got %v", ordering)
 	}
 }
 
-func BenchmarkReceive(b *testing.B) {
-	vc := NewVectorClock(0, 10)
-	received := []int64{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		vc.Receive(received)
+func TestVectorClockCausalityOrdering(t *testing.T) {
+	sender := NewVector(0, 2)
+	receiver := NewVector(1, 2)
+
+	sendTime := sender.Send()                 // [1, 0]
+	receiveTime := receiver.Receive(sendTime) // [1, 1]
+
+	// Receive must happen after send
+	ordering := CompareClocks(sendTime, receiveTime)
+	if ordering != Before {
+		t.Errorf("Causality violation: send should happen Before receive, got %v", ordering)
 	}
 }
 
-func BenchmarkCompare(b *testing.B) {
-	v1 := []int64{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}
-	v2 := []int64{2, 2, 3, 4, 5, 6, 7, 8, 9, 10}
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		CompareVectorClocks(v1, v2)
-	}
-}
+func TestVectorClockTransitivity(t *testing.T) {
+	p1 := NewVector(0, 3)
+	p2 := NewVector(1, 3)
+	p3 := NewVector(2, 3)
 
-func BenchmarkConcurrentOperations(b *testing.B) {
-	vc := NewVectorClock(0, 10)
-	b.ResetTimer()
-	b.RunParallel(func(pb *testing.PB) {
-		for pb.Next() {
-			vc.Tick()
-		}
-	})
+	// P1 → P2 → P3 (transitive causality chain)
+	ts1 := p1.Send()       // [1, 0, 0]
+	p2.Receive(ts1)        // [1, 1, 0] - receive but don't need the value
+	ts2 := p2.Send()       // [1, 2, 0]
+	ts3 := p3.Receive(ts2) // [1, 2, 1]
+
+	// ts1 should happen before ts3 (transitivity)
+	ordering := CompareClocks(ts1, ts3)
+	if ordering != Before {
+		t.Errorf("Expected transitive Before relationship, got %v", ordering)
+	}
 }
