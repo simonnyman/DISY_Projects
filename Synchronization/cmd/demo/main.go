@@ -17,11 +17,16 @@ const (
 )
 
 func main() {
+
 	sim := createSimulation()
 	runSimulation(sim)
 
 	displayStatistics(sim)
+	displayComplexityAnalysis(sim)
+	displayCausalAnalysis(sim)
 	displayConcurrencyAnalysis(sim)
+	displayAlgorithmComparison(sim)
+	displayCommunicationMatrix(sim)
 	displaySampleEvents(sim)
 }
 
@@ -110,6 +115,100 @@ func displayProcessEvents(process *simulator.Process, id int) {
 				event.TargetID, event.MessageID)
 		}
 	}
+}
+
+func displayCommunicationMatrix(sim *simulator.Simulator) {
+	matrix := sim.GetCommunicationMatrix()
+
+	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	fmt.Println("📡 Communication Matrix (messages sent)")
+	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	fmt.Print("     ")
+	for i := 0; i < numProcesses; i++ {
+		fmt.Printf("P%d  ", i)
+	}
+	fmt.Println()
+
+	for i := 0; i < numProcesses; i++ {
+		fmt.Printf("P%d   ", i)
+		for j := 0; j < numProcesses; j++ {
+			if i == j {
+				fmt.Print(" -  ")
+			} else {
+				fmt.Printf("%2d  ", matrix[i][j])
+			}
+		}
+		fmt.Println()
+	}
+	fmt.Println()
+}
+
+func displayAlgorithmComparison(sim *simulator.Simulator) {
+	comparison := sim.CompareAlgorithms()
+
+	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	fmt.Println("⚖️  Lamport vs Vector Clock Comparison")
+	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	fmt.Println("Lamport Timestamp:")
+	lamport := comparison["lamport"].(map[string]interface{})
+	fmt.Printf("  ✓ Space per process:  %d bytes\n", lamport["space_per_process"])
+	fmt.Printf("  ✓ Message overhead:   %d bytes\n", lamport["message_overhead"])
+	fmt.Printf("  ✗ Concurrent detect:  %v\n", lamport["can_detect_concurrent"])
+
+	fmt.Println("\nVector Clock:")
+	vec := comparison["vector"].(map[string]interface{})
+	fmt.Printf("  ✓ Space per process:  %d bytes\n", vec["space_per_process"])
+	fmt.Printf("  ✓ Message overhead:   %d bytes\n", vec["message_overhead"])
+	fmt.Printf("  ✓ Concurrent detect:  %v\n", vec["can_detect_concurrent"])
+	fmt.Printf("  ℹ  Overhead ratio:     %.1fx\n", vec["overhead_ratio"])
+
+	fmt.Println("\nTrade-off Summary:")
+	tradeoff := comparison["tradeoff"].(map[string]interface{})
+	fmt.Printf("  • Space increase:     %s\n", tradeoff["space_increase"])
+	fmt.Printf("  • Message increase:   %s\n", tradeoff["message_increase"])
+	fmt.Printf("  • Benefit:            %s\n", tradeoff["concurrent_detection"])
+	fmt.Println()
+}
+
+func displayComplexityAnalysis(sim *simulator.Simulator) {
+	metrics := sim.AnalyzeComplexity()
+
+	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	fmt.Println("⚡ Complexity Analysis")
+	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	fmt.Printf("Space Complexity:\n")
+	fmt.Printf("  Lamport per process:  %6d bytes\n", metrics.LamportClockSize)
+	fmt.Printf("  Vector per process:   %6d bytes (%.1fx overhead)\n",
+		metrics.VectorClockSize,
+		float64(metrics.VectorClockSize)/float64(metrics.LamportClockSize))
+	fmt.Printf("\nMessage Complexity:\n")
+	fmt.Printf("  Total messages:       %6d\n", metrics.TotalMessages)
+	fmt.Printf("  Avg per process:      %6d\n", metrics.AverageMessagePerProc)
+	fmt.Printf("  Avg message size:     %6d bytes\n", metrics.AverageMessageSize)
+	fmt.Printf("  Vector overhead:      %.1fx\n", metrics.MessageOverhead+1)
+	fmt.Printf("\nTotal Memory Usage:     %6d bytes (%.2f KB)\n",
+		metrics.TotalMemoryUsage,
+		float64(metrics.TotalMemoryUsage)/1024)
+	fmt.Println()
+}
+
+func displayCausalAnalysis(sim *simulator.Simulator) {
+	relations := sim.CountCausalRelationships()
+	total := relations["before"] + relations["after"] + relations["concurrent"] + relations["equal"]
+
+	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	fmt.Println("🔗 Causal Relationship Analysis")
+	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	fmt.Printf("Before relationships:     %6d (%.1f%%)\n",
+		relations["before"], percentage(relations["before"], total))
+	fmt.Printf("After relationships:      %6d (%.1f%%)\n",
+		relations["after"], percentage(relations["after"], total))
+	fmt.Printf("Concurrent relationships: %6d (%.1f%%)\n",
+		relations["concurrent"], percentage(relations["concurrent"], total))
+	fmt.Printf("Equal timestamps:         %6d (%.1f%%)\n",
+		relations["equal"], percentage(relations["equal"], total))
+	fmt.Printf("Total event pairs:        %6d\n", total)
+	fmt.Println()
 }
 
 // helper functions

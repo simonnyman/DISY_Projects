@@ -87,3 +87,51 @@ func HappenedBefore(v1, v2 []int64) bool {
 func AreEqual(v1, v2 []int64) bool {
 	return vector.CompareClocks(v1, v2) == vector.Equal
 }
+
+// CountCausalRelationships analyzes all causal relationships
+func (s *Simulator) CountCausalRelationships() map[string]int {
+	before := 0
+	after := 0
+	concurrent := 0
+	equal := 0
+	events := s.Events
+
+	for i := 0; i < len(events); i++ {
+		for j := i + 1; j < len(events); j++ {
+			ordering := vector.CompareClocks(events[i].VectorTime, events[j].VectorTime)
+			switch ordering {
+			case vector.Before:
+				before++
+			case vector.After:
+				after++
+			case vector.Concurrent:
+				concurrent++
+			case vector.Equal:
+				equal++
+			}
+		}
+	}
+
+	return map[string]int{
+		"before":     before,
+		"after":      after,
+		"concurrent": concurrent,
+		"equal":      equal,
+	}
+}
+
+// GetCommunicationMatrix returns who communicated with whom
+func (s *Simulator) GetCommunicationMatrix() [][]int {
+	matrix := make([][]int, s.NumProcesses)
+	for i := range matrix {
+		matrix[i] = make([]int, s.NumProcesses)
+	}
+
+	for _, event := range s.Events {
+		if event.EventType == "send" {
+			matrix[event.ProcessID][event.TargetID]++
+		}
+	}
+
+	return matrix
+}
