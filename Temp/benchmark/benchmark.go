@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/simonnyman/DISY_Projects/synchronization/lamport"
-	"github.com/simonnyman/DISY_Projects/synchronization/simulator"
-	"github.com/simonnyman/DISY_Projects/synchronization/vectorclock"
+	"github.com/simonnyman/DISY_Projects/Synchronization/lamport"
+	"github.com/simonnyman/DISY_Projects/Synchronization/simulator"
+	"github.com/simonnyman/DISY_Projects/Synchronization/vectorclock"
 )
 
 // Result represents benchmark results

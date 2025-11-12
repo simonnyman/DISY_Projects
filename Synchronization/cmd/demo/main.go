@@ -4,114 +4,125 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/simonnyman/DISY_Projects/synchronization/benchmark"
-	"github.com/simonnyman/DISY_Projects/synchronization/simulator"
+	"github.com/simonnyman/DISY_Projects/Synchronization/simulator"
+)
+
+// simulation configuration
+const (
+	numProcesses    = 5               // number of processes
+	simulationTime  = 2 * time.Second // seconds the simulation runs
+	localEventProb  = 0.3             // probability of local event
+	sendEventProb   = 0.4             // probability of send event
+	sampleEventsMax = 5               // sample events to show per process
 )
 
 func main() {
-	fmt.Println("=== Lamport Timestamp and Vector Clock Implementation ===")
-	fmt.Println()
-	
-	// Run demonstration simulation
-	fmt.Println("Running simulation with 5 processes for 2 seconds...")
-	runSimulation()
-	
-	// Run benchmarks
-	fmt.Println("\nRunning comprehensive benchmarks...")
-	runBenchmarks()
-	
-	// Run operation-level comparison
-	fmt.Println("\nRunning operation-level comparison...")
-	runOperationComparison()
+	sim := createSimulation()
+	runSimulation(sim)
+
+	displayStatistics(sim)
+	displayConcurrencyAnalysis(sim)
+	displaySampleEvents(sim)
 }
 
-func runSimulation() {
-	numProcesses := 5
-	duration := 2 * time.Second
-	localEventRate := 0.3
-	messageRate := 0.4
-	
-	sim := simulator.NewSimulator(numProcesses)
-	
-	startTime := time.Now()
-	sim.RunSimulation(duration, localEventRate, messageRate)
-	elapsed := time.Since(startTime)
-	
-	// Print statistics
+func createSimulation() *simulator.Simulator {
+	fmt.Printf("Configuration:\n")
+	fmt.Printf("Processes: %d\n", numProcesses)
+	fmt.Printf("Duration: %s\n", simulationTime)
+	fmt.Printf("Local event probability: %.0f%%\n", localEventProb*100)
+	fmt.Printf("Send message probability: %.0f%%\n", sendEventProb*100)
+	fmt.Println()
+
+	return simulator.NewSimulator(numProcesses)
+}
+
+func runSimulation(sim *simulator.Simulator) {
+	fmt.Println("Running simulation...")
+	sim.RunSimulation(simulationTime, localEventProb, sendEventProb)
+	fmt.Println("Simulation complete")
+	fmt.Println()
+}
+
+func displayStatistics(sim *simulator.Simulator) {
 	stats := sim.GetStatistics()
-	fmt.Println("\n--- Simulation Statistics ---")
-	fmt.Printf("Duration: %v\n", elapsed)
-	fmt.Printf("Number of processes: %d\n", stats["num_processes"])
-	fmt.Printf("Total events: %d\n", stats["total_events"])
-	fmt.Printf("Local events: %d\n", stats["local_events"])
-	fmt.Printf("Send events: %d\n", stats["send_events"])
-	fmt.Printf("Receive events: %d\n", stats["receive_events"])
-	
-	// Analyze ordering
-	ordering := sim.AnalyzeOrdering()
-	fmt.Println("\n--- Ordering Analysis ---")
-	fmt.Printf("Total pairs analyzed: %d\n", ordering["total_pairs_analyzed"])
-	fmt.Printf("Concurrent pairs: %d\n", ordering["concurrent_pairs"])
-	fmt.Printf("Concurrency rate: %.2f%%\n", ordering["concurrency_rate"].(float64)*100)
-	
-	// Print sample events from each process
-	fmt.Println("\n--- Sample Events per Process ---")
+	total := stats["total_events"].(int)
+
+	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	fmt.Println("Event Statistics")
+	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	fmt.Printf("Total events:    %6d\n", total)
+	fmt.Printf("Local events:    %6d (%.1f%%)\n",
+		stats["local_events"].(int),
+		percentage(stats["local_events"].(int), total))
+	fmt.Printf("Send events:     %6d (%.1f%%)\n",
+		stats["send_events"].(int),
+		percentage(stats["send_events"].(int), total))
+	fmt.Printf("Receive events:  %6d (%.1f%%)\n",
+		stats["receive_events"].(int),
+		percentage(stats["receive_events"].(int), total))
+	fmt.Println()
+}
+
+func displayConcurrencyAnalysis(sim *simulator.Simulator) {
+	stats := sim.GetStatistics()
+	totalEvents := stats["total_events"].(int)
+	totalPairs := totalEvents * (totalEvents - 1) / 2
+	concurrentPairs := sim.CountConcurrentEvents()
+
+	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	fmt.Println("Concurrency Analysis (Vector Clock Advantage)")
+	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	fmt.Printf("Concurrent pairs:  %6d\n", concurrentPairs)
+	fmt.Printf("Total pairs:       %6d\n", totalPairs)
+	fmt.Printf("Concurrency rate:  %6.2f%%\n", percentage(concurrentPairs, totalPairs))
+	fmt.Println()
+}
+
+func displaySampleEvents(sim *simulator.Simulator) {
+	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	fmt.Printf("Sample Events (first %d per process)\n", sampleEventsMax)
+	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
 	for i := 0; i < numProcesses; i++ {
-		process := sim.Processes[i]
-		eventCount := len(process.Events)
-		fmt.Printf("Process %d: %d events\n", i, eventCount)
-		
-		// Show first 3 events
-		maxShow := 3
-		if eventCount < maxShow {
-			maxShow = eventCount
-		}
-		for j := 0; j < maxShow; j++ {
-			event := process.Events[j]
-			fmt.Printf("  [%s] Lamport: %d, Vector: %v\n",
+		displayProcessEvents(sim.Processes[i], i)
+	}
+}
+
+func displayProcessEvents(process *simulator.Process, id int) {
+	eventCount := len(process.Events)
+	fmt.Printf("\n Process %d (%d total events):\n", id, eventCount)
+
+	maxShow := min(sampleEventsMax, eventCount)
+	for j := 0; j < maxShow; j++ {
+		event := process.Events[j]
+
+		switch event.EventType {
+		case "local":
+			fmt.Printf("   [%8s] Lamport: %3d, Vector: %v\n",
 				event.EventType, event.Timestamp, event.VectorTime)
+		case "send":
+			fmt.Printf("   [%8s] Lamport: %3d, Vector: %v → P%d (msg#%d)\n",
+				event.EventType, event.Timestamp, event.VectorTime,
+				event.TargetID, event.MessageID)
+		case "receive":
+			fmt.Printf("   [%8s] Lamport: %3d, Vector: %v ← P%d (msg#%d)\n",
+				event.EventType, event.Timestamp, event.VectorTime,
+				event.TargetID, event.MessageID)
 		}
 	}
 }
 
-func runBenchmarks() {
-	results := benchmark.RunBenchmark()
-	benchmark.PrintResults(results)
-	
-	// Analysis
-	fmt.Println("=== Analysis ===")
-	fmt.Println("\nKey Observations:")
-	fmt.Println("1. Time Complexity:")
-	fmt.Println("   - Lamport: O(1) for all operations (tick, send, receive)")
-	fmt.Println("   - Vector Clock: O(n) for send and receive, where n is number of processes")
-	fmt.Println()
-	fmt.Println("2. Space Complexity:")
-	fmt.Println("   - Lamport: O(1) - single integer per process")
-	fmt.Println("   - Vector Clock: O(n) - array of n integers per process")
-	fmt.Println()
-	fmt.Println("3. Message Complexity:")
-	fmt.Println("   - Lamport: O(1) - single timestamp per message")
-	fmt.Println("   - Vector Clock: O(n) - vector of n timestamps per message")
-	fmt.Println()
-	fmt.Println("4. Ordering Guarantees:")
-	fmt.Println("   - Lamport: Partial ordering (if a->b then T(a)<T(b), but not vice versa)")
-	fmt.Println("   - Vector Clock: Total ordering (can determine all causality relationships)")
-	fmt.Println()
-	fmt.Println("5. Concurrency Detection:")
-	fmt.Println("   - Lamport: Cannot detect concurrent events")
-	fmt.Println("   - Vector Clock: Can detect concurrent events")
+// helper functions
+func percentage(part, total int) float64 {
+	if total == 0 {
+		return 0
+	}
+	return float64(part) / float64(total) * 100
 }
 
-func runOperationComparison() {
-	iterations := 1000000
-	results := benchmark.CompareOperations(iterations)
-	benchmark.PrintOperationComparison(results, iterations)
-	
-	fmt.Println("=== Performance Summary ===")
-	fmt.Println("Lamport clocks are significantly faster due to O(1) operations.")
-	fmt.Println("Vector clocks provide more information but at the cost of O(n) complexity.")
-	fmt.Println()
-	fmt.Println("Trade-offs:")
-	fmt.Println("- Use Lamport when: Performance is critical and partial ordering is sufficient")
-	fmt.Println("- Use Vector Clock when: Full causality detection is needed (e.g., conflict resolution)")
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }

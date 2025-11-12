@@ -10,7 +10,7 @@ type Vector struct {
 	mutex     sync.RWMutex
 }
 
-func newVector(processID, numProcesses int) *Vector {
+func NewVector(processID, numProcesses int) *Vector {
 	return &Vector{
 		processID: processID,
 		clock:     make([]int64, numProcesses),
@@ -65,8 +65,17 @@ func (vector *Vector) Send() []int64 {
 	return vector.copyClock()
 }
 
-func compareClocks(vector1, vector2 []int64) Ordering {
+type Ordering int
 
+const (
+	Before Ordering = iota
+	After
+	Concurrent
+	Equal
+)
+
+// CompareClocks determines the causal relationship between two vector clocks
+func CompareClocks(vector1, vector2 []int64) Ordering {
 	if len(vector1) != len(vector2) {
 		panic("vectors must have the same length")
 	}
@@ -95,40 +104,31 @@ func compareClocks(vector1, vector2 []int64) Ordering {
 	return Concurrent
 }
 
-type Ordering int
+// type Message struct {
+// 	vectorTime []int64
+// 	processID  int
+// 	Data       interface{}
+// }
 
-const (
-	Before Ordering = iota
-	After
-	Concurrent
-	Equal
-)
+// func newMessage(mVectorTime []int64, mProcessID int, mData interface{}) *Message {
+// 	time := make([]int64, len(mVectorTime))
 
-type Message struct {
-	vectorTime []int64
-	processID  int
-	Data       interface{}
-}
+// 	copy(time, mVectorTime)
+// 	return &Message{
+// 		vectorTime: time,
+// 		processID:  mProcessID,
+// 		Data:       mData,
+// 	}
+// }
 
-func newMessage(mVectorTime []int64, mProcessID int, mData interface{}) *Message {
-	time := make([]int64, len(mVectorTime))
+// func (m *Message) compareTo(other *Message) Ordering {
+// 	return compareClocks(m.vectorTime, other.vectorTime)
+// }
 
-	copy(time, mVectorTime)
-	return &Message{
-		vectorTime: time,
-		processID:  mProcessID,
-		Data:       mData,
-	}
-}
+// func (m *Message) happenedBefore(other *Message) bool {
+// 	return m.compareTo(other) == Before
+// }
 
-func (m *Message) compareTo(other *Message) Ordering {
-	return compareClocks(m.vectorTime, other.vectorTime)
-}
-
-func (m *Message) happenedBefore(other *Message) bool {
-	return m.compareTo(other) == Before
-}
-
-func (m *Message) isConcurrent(other *Message) bool {
-	return m.compareTo(other) == Concurrent
-}
+// func (m *Message) isConcurrent(other *Message) bool {
+// 	return m.compareTo(other) == Concurrent
+// }
