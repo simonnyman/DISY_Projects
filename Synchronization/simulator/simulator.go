@@ -5,8 +5,8 @@ import (
 	"sync"
 	"time"
 
-	lamport "github.com/simonnyman/DISY_Projects/Synchronization/lamportClock"
-	vector "github.com/simonnyman/DISY_Projects/Synchronization/vectorCustom"
+	lamport "github.com/simonnyman/DISY_Projects/Synchronization/lamport"
+	vector "github.com/simonnyman/DISY_Projects/Synchronization/vector"
 )
 
 type Event struct {

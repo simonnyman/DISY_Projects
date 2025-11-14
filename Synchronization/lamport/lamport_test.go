@@ -1,4 +1,4 @@
-package lamportClock
+package lamport
 
 import (
 	"testing"

@@ -103,32 +103,3 @@ func CompareClocks(vector1, vector2 []int64) Ordering {
 	}
 	return Concurrent
 }
-
-// type Message struct {
-// 	vectorTime []int64
-// 	processID  int
-// 	Data       interface{}
-// }
-
-// func newMessage(mVectorTime []int64, mProcessID int, mData interface{}) *Message {
-// 	time := make([]int64, len(mVectorTime))
-
-// 	copy(time, mVectorTime)
-// 	return &Message{
-// 		vectorTime: time,
-// 		processID:  mProcessID,
-// 		Data:       mData,
-// 	}
-// }
-
-// func (m *Message) compareTo(other *Message) Ordering {
-// 	return compareClocks(m.vectorTime, other.vectorTime)
-// }
-
-// func (m *Message) happenedBefore(other *Message) bool {
-// 	return m.compareTo(other) == Before
-// }
-
-// func (m *Message) isConcurrent(other *Message) bool {
-// 	return m.compareTo(other) == Concurrent
-// }

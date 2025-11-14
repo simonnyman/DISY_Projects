@@ -1,6 +1,6 @@
 package simulator
 
-import vector "github.com/simonnyman/DISY_Projects/Synchronization/vectorCustom"
+import vector "github.com/simonnyman/DISY_Projects/Synchronization/vector"
 
 // returns detailed statistics for each process
 func (s *Simulator) GetProcessStatistics() []map[string]interface{} {
