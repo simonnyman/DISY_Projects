@@ -4,17 +4,21 @@ import (
 	"sync"
 )
 
+// Lamport's logical clock
+// thread-safe for concurrent use.
 type LamportClock struct {
 	mu   sync.Mutex
 	time int64
 }
 
+// creates a new Lamport clock initialized to zero.
 func NewLamportClock() *LamportClock {
 	return &LamportClock{
 		time: 0,
 	}
 }
 
+// tick increments the clock for a local event.
 func (lc *LamportClock) Tick() int64 {
 	lc.mu.Lock()
 	defer lc.mu.Unlock()
@@ -22,6 +26,7 @@ func (lc *LamportClock) Tick() int64 {
 	return lc.time
 }
 
+// send increments the clock and returns the timestamp for the outgoing message.
 func (lc *LamportClock) Send() int64 {
 	lc.mu.Lock()
 	defer lc.mu.Unlock()
@@ -29,6 +34,8 @@ func (lc *LamportClock) Send() int64 {
 	return lc.time
 }
 
+// updates the clock based on received timestamp.
+// sets time to max(local, received) + 1.
 func (lc *LamportClock) Receive(receivedTime int64) int64 {
 	lc.mu.Lock()
 	defer lc.mu.Unlock()
@@ -36,32 +43,16 @@ func (lc *LamportClock) Receive(receivedTime int64) int64 {
 	return lc.time
 }
 
+// returns the current clock value.
 func (lc *LamportClock) Time() int64 {
 	lc.mu.Lock()
 	defer lc.mu.Unlock()
 	return lc.time
 }
 
+// sets the clock back to zero.
 func (lc *LamportClock) Reset() {
 	lc.mu.Lock()
 	defer lc.mu.Unlock()
 	lc.time = 0
-}
-
-type message struct {
-	timestamp int64
-	Data      interface{}
-	PID       int
-}
-
-func CreateMessage(timestamp int64, data interface{}, pid int) *message {
-	return &message{
-		timestamp: timestamp,
-		Data:      data,
-		PID:       pid,
-	}
-}
-
-func (a *message) HappensBefore(b *message) bool {
-	return a.timestamp < b.timestamp
 }

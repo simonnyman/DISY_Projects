@@ -6,6 +6,8 @@ import (
 )
 
 // Basic functionality tests
+
+// creates a new simulator and verifies initialization.
 func TestNewSimulator(t *testing.T) {
 	sim := NewSimulator(5)
 
@@ -17,7 +19,7 @@ func TestNewSimulator(t *testing.T) {
 		t.Errorf("Expected 5 processes in array, got %d", len(sim.Processes))
 	}
 
-	// Check each process is initialized
+	// check each process is initialized
 	for i, p := range sim.Processes {
 		if p.ID != i {
 			t.Errorf("Process %d has wrong ID: %d", i, p.ID)
@@ -31,6 +33,18 @@ func TestNewSimulator(t *testing.T) {
 	}
 }
 
+// verifies panic when creating simulator with invalid process count.
+func TestNewSimulatorPanic(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Error("Expected panic when numProcesses < 1")
+		}
+	}()
+
+	NewSimulator(0)
+}
+
+// verifies local event generation updates clocks correctly.
 func TestLocalEvent(t *testing.T) {
 	sim := NewSimulator(3)
 
@@ -59,12 +73,26 @@ func TestLocalEvent(t *testing.T) {
 	}
 }
 
+// verifies panic on invalid process ID for local event.
+func TestLocalEventPanic(t *testing.T) {
+	sim := NewSimulator(3)
+
+	defer func() {
+		if r := recover(); r == nil {
+			t.Error("Expected panic for invalid processID")
+		}
+	}()
+
+	sim.generateLocalEvent(5)
+}
+
+// verifies message sending creates correct event and message.
 func TestSendMessage(t *testing.T) {
 	sim := NewSimulator(3)
 
 	sim.sendMessage(0, 1)
 
-	// Check send event on P0
+	// check send event on P0
 	if len(sim.Processes[0].Events) != 1 {
 		t.Fatalf("Expected 1 event on P0, got %d", len(sim.Processes[0].Events))
 	}
@@ -84,13 +112,41 @@ func TestSendMessage(t *testing.T) {
 	}
 }
 
+// verifies panic on invalid sender process ID.
+func TestSendMessageFromPanic(t *testing.T) {
+	sim := NewSimulator(3)
+
+	defer func() {
+		if r := recover(); r == nil {
+			t.Error("Expected panic for invalid fromID")
+		}
+	}()
+
+	sim.sendMessage(5, 1)
+}
+
+// verifies panic on invalid receiver process ID.
+func TestSendMessageToPanic(t *testing.T) {
+	sim := NewSimulator(3)
+
+	defer func() {
+		if r := recover(); r == nil {
+			t.Error("Expected panic for invalid toID")
+		}
+	}()
+
+	sim.sendMessage(0, 5)
+}
+
+// verifies message reception updates clocks correctly.
 func TestReceiveMessage(t *testing.T) {
 	sim := NewSimulator(2)
 
-	// Send and wait for receive
+	// send and manually receive
 	sim.sendMessage(0, 1)
 	msg := <-sim.Processes[1].inbox
 	sim.receiveMessage(1, msg)
+
 	// P1 should have received
 	if len(sim.Processes[1].Events) == 0 {
 		t.Fatal("P1 should have received message")
@@ -106,35 +162,49 @@ func TestReceiveMessage(t *testing.T) {
 		t.Errorf("Expected message from P0, got P%d", receiveEvent.TargetID)
 	}
 
-	// Vector clock should show synchronization
+	// vector clock should show synchronization
 	if receiveEvent.VectorTime[0] == 0 {
 		t.Error("P1 should have knowledge of P0's events")
 	}
 }
 
+// verifies panic on invalid process ID for receive.
+func TestReceiveMessagePanic(t *testing.T) {
+	sim := NewSimulator(2)
+
+	defer func() {
+		if r := recover(); r == nil {
+			t.Error("Expected panic for invalid processID")
+		}
+	}()
+
+	msg := &Message{From: 0, To: 1, LamportTime: 1, VectorTime: []int64{1, 0}, MessageID: 0}
+	sim.receiveMessage(5, msg)
+}
+
+// verifies multiple messages have unique IDs.
 func TestMultipleMessages(t *testing.T) {
 	sim := NewSimulator(3)
 
-	// Send multiple messages
+	// send multiple messages
 	sim.sendMessage(0, 1)
 	sim.sendMessage(0, 2)
 	sim.sendMessage(1, 2)
 
-	time.Sleep(30 * time.Millisecond)
-
-	// Check message IDs are unique
+	// check message IDs are unique
 	if sim.Processes[0].Events[0].MessageID == sim.Processes[0].Events[1].MessageID {
 		t.Error("Message IDs should be unique")
 	}
 }
 
+// verifies event statistics are calculated correctly.
 func TestGetStatistics(t *testing.T) {
 	sim := NewSimulator(2)
 
 	sim.generateLocalEvent(0)
 	sim.sendMessage(0, 1)
 
-	// Manually process the inbox since we're not running the full simulation
+	// manually process the inbox
 	msg := <-sim.Processes[1].inbox
 	sim.receiveMessage(1, msg)
 
@@ -158,10 +228,11 @@ func TestGetStatistics(t *testing.T) {
 	}
 }
 
+// verifies concurrent events are detected correctly.
 func TestConcurrencyDetection(t *testing.T) {
 	sim := NewSimulator(2)
 
-	// Create concurrent events (no communication)
+	// create concurrent events (no communication)
 	sim.generateLocalEvent(0) // [1, 0]
 	sim.generateLocalEvent(1) // [0, 1]
 
@@ -173,6 +244,8 @@ func TestConcurrencyDetection(t *testing.T) {
 }
 
 // Scenario-based tests
+
+// verifies vector clock synchronization during message passing.
 func TestVectorClockSynchronization(t *testing.T) {
 	sim := NewSimulator(2)
 
@@ -197,10 +270,11 @@ func TestVectorClockSynchronization(t *testing.T) {
 	}
 }
 
+// tests transitive causality in message chain (P0 → P1 → P2).
 func TestMessageChain(t *testing.T) {
 	sim := NewSimulator(3)
 
-	// Create a message chain: P0 → P1 → P2
+	// create a message chain: P0 → P1 → P2
 	sim.sendMessage(0, 1) // P0: [1, 0, 0]
 	msg := <-sim.Processes[1].inbox
 	sim.receiveMessage(1, msg)
@@ -225,6 +299,7 @@ func TestMessageChain(t *testing.T) {
 	}
 }
 
+// tests broadcast pattern where one process sends to all others.
 func TestBroadcastPattern(t *testing.T) {
 	sim := NewSimulator(4)
 
@@ -240,9 +315,7 @@ func TestBroadcastPattern(t *testing.T) {
 	msg = <-sim.Processes[3].inbox
 	sim.receiveMessage(3, msg)
 
-	time.Sleep(30 * time.Millisecond)
-
-	// All other processes should have received
+	// all other processes should have received
 	for i := 1; i < 4; i++ {
 		if len(sim.Processes[i].Events) == 0 {
 			t.Errorf("Process %d should have received message", i)
@@ -250,6 +323,7 @@ func TestBroadcastPattern(t *testing.T) {
 	}
 }
 
+// verifies causal ordering is preserved in sequential sends.
 func TestCausalOrderingPreserved(t *testing.T) {
 	sim := NewSimulator(2)
 
@@ -270,16 +344,17 @@ func TestCausalOrderingPreserved(t *testing.T) {
 	event1 := sim.Processes[1].Events[0]
 	event2 := sim.Processes[1].Events[1]
 
-	// Second receive should have higher timestamp
+	// second receive should have higher timestamp
 	if event2.Timestamp <= event1.Timestamp {
 		t.Error("Causal ordering not preserved in receive timestamps")
 	}
 }
 
+// verifies full simulation run generates events.
 func TestRunSimulation(t *testing.T) {
 	sim := NewSimulator(3)
 
-	// Run short simulation
+	// run short simulation
 	sim.RunSimulation(100*time.Millisecond, 0.3, 0.4)
 
 	stats := sim.GetStatistics()
@@ -289,7 +364,7 @@ func TestRunSimulation(t *testing.T) {
 		t.Error("Simulation should have generated events")
 	}
 
-	// Each process should have some events
+	// each process should have some events
 	for i, p := range sim.Processes {
 		if len(p.Events) == 0 {
 			t.Errorf("Process %d should have generated events", i)
@@ -297,15 +372,16 @@ func TestRunSimulation(t *testing.T) {
 	}
 }
 
+// verifies simulation works with different event probabilities.
 func TestSimulationWithDifferentProbabilities(t *testing.T) {
 	tests := []struct {
 		name      string
 		localProb float64
 		sendProb  float64
 	}{
-		{"HighLocal", 0.8, 0.1},
-		{"HighSend", 0.1, 0.8},
-		{"Balanced", 0.4, 0.4},
+		{"high local", 0.8, 0.1},
+		{"high send", 0.1, 0.8},
+		{"balanced", 0.4, 0.4},
 	}
 
 	for _, tt := range tests {
@@ -321,13 +397,52 @@ func TestSimulationWithDifferentProbabilities(t *testing.T) {
 	}
 }
 
+// verifies panic on invalid local event probability.
+func TestRunSimulationInvalidLocalProb(t *testing.T) {
+	sim := NewSimulator(2)
+
+	defer func() {
+		if r := recover(); r == nil {
+			t.Error("Expected panic for invalid localEventProb")
+		}
+	}()
+
+	sim.RunSimulation(100*time.Millisecond, 1.5, 0.3)
+}
+
+// verifies panic on invalid send event probability.
+func TestRunSimulationInvalidSendProb(t *testing.T) {
+	sim := NewSimulator(2)
+
+	defer func() {
+		if r := recover(); r == nil {
+			t.Error("Expected panic for invalid sendEventProb")
+		}
+	}()
+
+	sim.RunSimulation(100*time.Millisecond, 0.3, -0.1)
+}
+
+// verifies panic on invalid duration.
+func TestRunSimulationInvalidDuration(t *testing.T) {
+	sim := NewSimulator(2)
+
+	defer func() {
+		if r := recover(); r == nil {
+			t.Error("Expected panic for invalid duration")
+		}
+	}()
+
+	sim.RunSimulation(0, 0.3, 0.3)
+}
+
+// verifies per-process statistics are calculated correctly.
 func TestProcessStatistics(t *testing.T) {
 	sim := NewSimulator(3)
 
 	sim.generateLocalEvent(0)
 	sim.generateLocalEvent(0)
 	sim.sendMessage(0, 1)
-	time.Sleep(20 * time.Millisecond)
 
 	processStats := sim.GetProcessStatistics()
 
@@ -351,27 +466,30 @@ func TestProcessStatistics(t *testing.T) {
 	}
 }
 
-// Test helper functions from analysis.go
+// Test helper functions
+
+// verifies HappenedBefore correctly identifies causal ordering.
 func TestHappenedBefore(t *testing.T) {
 	sim := NewSimulator(2)
 
-	// Create causal chain
+	// create causal chain
 	sim.sendMessage(0, 1) // P0: [1, 0]
 	msg := <-sim.Processes[1].inbox
 	sim.receiveMessage(1, msg) // P1: [1, 1]
 	sim.sendMessage(1, 0)      // P1: [1, 2]
 
-	// Event 0 should happen before event 2
+	// event 0 should happen before event 2
 	if !HappenedBefore(sim.Events[0].VectorTime, sim.Events[2].VectorTime) {
 		t.Error("First send should happen before second send")
 	}
 
-	// Event 2 should NOT happen before event 0
+	// event 2 should NOT happen before event 0
 	if HappenedBefore(sim.Events[2].VectorTime, sim.Events[0].VectorTime) {
 		t.Error("Later event should not happen before earlier event")
 	}
 }
 
+// verifies AreEqual correctly identifies identical vector clocks.
 func TestAreEqual(t *testing.T) {
 	v1 := []int64{1, 2, 3}
 	v2 := []int64{1, 2, 3}
@@ -386,7 +504,9 @@ func TestAreEqual(t *testing.T) {
 	}
 }
 
-// Test edge cases
+// Edge cases
+
+// verifies empty simulator has no events or concurrent pairs.
 func TestEmptySimulator(t *testing.T) {
 	sim := NewSimulator(1)
 
@@ -402,46 +522,44 @@ func TestEmptySimulator(t *testing.T) {
 	}
 }
 
+// verifies single process has no concurrent events.
 func TestSingleProcess(t *testing.T) {
 	sim := NewSimulator(1)
 
 	sim.generateLocalEvent(0)
 	sim.generateLocalEvent(0)
 
-	// Single process events are all causally ordered
+	// single process events are all causally ordered
 	concurrent := sim.CountConcurrentEvents()
 	if concurrent != 0 {
 		t.Errorf("Single process should have 0 concurrent events, got %d", concurrent)
 	}
 }
 
-// Test simulation with low probabilities (tests the "do nothing" branch)
+// tests simulation with very low probabilities (do-nothing branch).
 func TestSimulationLowProbability(t *testing.T) {
 	sim := NewSimulator(2)
 
-	// Very low probabilities - most ticks will do nothing
+	// very low probabilities - most ticks will do nothing
 	sim.RunSimulation(50*time.Millisecond, 0.01, 0.01)
 
-	// Should still potentially generate some events
+	// ensure simulation completes without error
 	stats := sim.GetStatistics()
-	// We don't assert events must occur since probabilities are low
-	// This test ensures the do-nothing path works
 	_ = stats
 }
 
-// Test that ensures the case where toID == processID is handled
+// verifies single process cannot send to itself.
 func TestSimulationSelfSendPrevention(t *testing.T) {
 	sim := NewSimulator(1)
 
-	// With only 1 process, all send attempts will have toID == processID
-	// and should be skipped
+	// with only 1 process, all send attempts will have toID == processID
 	sim.RunSimulation(50*time.Millisecond, 0.0, 1.0)
 
 	stats := sim.GetStatistics()
 	sendEvents := stats["send_events"].(int)
 
-	// Should have 0 sends because process can't send to itself
+	// should have 0 sends because process can't send to itself
 	if sendEvents != 0 {
-		t.Errorf("Single process should not be able to send to itself, got %d sends", sendEvents)
+		t.Errorf("Single process should not send to itself, got %d sends", sendEvents)
 	}
 }

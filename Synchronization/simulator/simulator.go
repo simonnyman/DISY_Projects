@@ -9,15 +9,17 @@ import (
 	vector "github.com/simonnyman/DISY_Projects/Synchronization/vector"
 )
 
+// Event represents a single event in the distributed system.
 type Event struct {
-	ProcessID  int
-	EventType  string  // "local", "send", "receive"
-	Timestamp  int64   // lamport time
-	VectorTime []int64 // vector clock time
-	TargetID   int     // for send: who receives, For receive: who sent
-	MessageID  int     // unique message identifier
+	ProcessID  int     // process that generated the event
+	EventType  string  // "local", "send", or "receive"
+	Timestamp  int64   // Lamport timestamp
+	VectorTime []int64 // Vector clock timestamp
+	TargetID   int     // for send: receiver, for receive: sender, -1 for local
+	MessageID  int     // unique message identifier, -1 for local events
 }
 
+// Process represents a single process in the distributed system.
 type Process struct {
 	ID           int
 	LamportClock *lamport.LamportClock
@@ -26,14 +28,17 @@ type Process struct {
 	inbox        chan *Message
 }
 
+// Simulator manages the distributed system simulation.
 type Simulator struct {
 	Processes        []*Process
 	NumProcesses     int
 	Events           []Event
-	messageIDCounter int        // counter for unique message IDs
-	mu               sync.Mutex // protect message ID counter
+	messageIDCounter int
+	counterMu        sync.Mutex // protects messageIDCounter
+	eventsMu         sync.Mutex // protects Events slice
 }
 
+// Message represents a message sent between processes.
 type Message struct {
 	From        int
 	To          int
@@ -42,8 +47,13 @@ type Message struct {
 	MessageID   int
 }
 
-// creates a new simulator with the specified number of processes
+// creates a new simulator with the specified number of processes.
+// panics if numProcesses is less than 1.
 func NewSimulator(numProcesses int) *Simulator {
+	if numProcesses < 1 {
+		panic("simulator: number of processes must be at least 1")
+	}
+
 	processes := make([]*Process, numProcesses)
 
 	for i := 0; i < numProcesses; i++ {
@@ -64,8 +74,13 @@ func NewSimulator(numProcesses int) *Simulator {
 	}
 }
 
-// process does a local event (no messaging)
+// generates a local event for the specified process.
+// panics if processID is out of bounds.
 func (s *Simulator) generateLocalEvent(processID int) {
+	if processID < 0 || processID >= s.NumProcesses {
+		panic("simulator: processID out of bounds")
+	}
+
 	p := s.Processes[processID]
 
 	lt := p.LamportClock.Tick()
@@ -76,16 +91,24 @@ func (s *Simulator) generateLocalEvent(processID int) {
 		EventType:  "local",
 		Timestamp:  lt,
 		VectorTime: vt,
-		TargetID:   -1, // no target for local events
-		MessageID:  -1, // no message for local events
+		TargetID:   -1,
+		MessageID:  -1,
 	}
 
 	p.Events = append(p.Events, e)
-	s.Events = append(s.Events, e)
+	s.appendEvent(e)
 }
 
-// process sends a message to another process
+// sends a message from one process to another.
+// panics if fromID or toID is out of bounds.
 func (s *Simulator) sendMessage(fromID, toID int) {
+	if fromID < 0 || fromID >= s.NumProcesses {
+		panic("simulator: fromID out of bounds")
+	}
+	if toID < 0 || toID >= s.NumProcesses {
+		panic("simulator: toID out of bounds")
+	}
+
 	sender := s.Processes[fromID]
 	receiver := s.Processes[toID]
 
@@ -94,12 +117,12 @@ func (s *Simulator) sendMessage(fromID, toID int) {
 	vt := sender.VectorClock.Send()
 
 	// get unique message ID
-	s.mu.Lock()
+	s.counterMu.Lock()
 	msgID := s.messageIDCounter
 	s.messageIDCounter++
-	s.mu.Unlock()
+	s.counterMu.Unlock()
 
-	// create the message
+	// create and send the message
 	msg := &Message{
 		From:        fromID,
 		To:          toID,
@@ -120,11 +143,16 @@ func (s *Simulator) sendMessage(fromID, toID int) {
 	}
 
 	sender.Events = append(sender.Events, e)
-	s.Events = append(s.Events, e)
+	s.appendEvent(e)
 }
 
-// process receives a message from inbox
+// processes a received message and updates clocks.
+// panics if processID is out of bounds.
 func (s *Simulator) receiveMessage(processID int, msg *Message) {
+	if processID < 0 || processID >= s.NumProcesses {
+		panic("simulator: processID out of bounds")
+	}
+
 	receiver := s.Processes[processID]
 
 	// update receiver's clocks with message timestamps
@@ -142,17 +170,34 @@ func (s *Simulator) receiveMessage(processID int, msg *Message) {
 	}
 
 	receiver.Events = append(receiver.Events, e)
-	s.Events = append(s.Events, e)
+	s.appendEvent(e)
 }
 
-// runs the simulation for a given duration with specified event probabilities
+// appends an event to the global event list in a thread-safe manner.
+func (s *Simulator) appendEvent(e Event) {
+	s.eventsMu.Lock()
+	s.Events = append(s.Events, e)
+	s.eventsMu.Unlock()
+}
+
+// runs the simulation for the specified duration.
 func (s *Simulator) RunSimulation(duration time.Duration, localEventProb, sendEventProb float64) {
+	if localEventProb < 0 || localEventProb > 1 {
+		panic("simulator: localEventProb must be between 0 and 1")
+	}
+	if sendEventProb < 0 || sendEventProb > 1 {
+		panic("simulator: sendEventProb must be between 0 and 1")
+	}
+	if duration <= 0 {
+		panic("simulator: duration must be positive")
+	}
+
 	var wg sync.WaitGroup
 	stopChan := make(chan bool)
 
-	// start a goroutine for each process
+	// start goroutines for each process
 	for i := 0; i < s.NumProcesses; i++ {
-		wg.Add(2) // one for event generator, one for receiver
+		wg.Add(2)
 
 		// event generator goroutine
 		go func(processID int) {
@@ -169,7 +214,7 @@ func (s *Simulator) RunSimulation(duration time.Duration, localEventProb, sendEv
 					if r < localEventProb {
 						s.generateLocalEvent(processID)
 					} else if r < localEventProb+sendEventProb {
-						// send message to random process
+						// send to random process (not self)
 						toID := rand.Intn(s.NumProcesses)
 						if toID != processID {
 							s.sendMessage(processID, toID)
@@ -195,10 +240,15 @@ func (s *Simulator) RunSimulation(duration time.Duration, localEventProb, sendEv
 		}(i)
 	}
 
-	// let simulation run for the specified duration
+	// run simulation for specified duration
 	time.Sleep(duration)
 
-	// stop all goroutines
+	// stop event generation
 	close(stopChan)
+
+	// give receivers time to drain inboxes
+	time.Sleep(50 * time.Millisecond)
+
+	// wait for all goroutines to finish
 	wg.Wait()
 }

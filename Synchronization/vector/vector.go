@@ -4,12 +4,15 @@ import (
 	"sync"
 )
 
+// vector clock
+// thread-safe for concurrent use.
 type Vector struct {
 	processID int
 	clock     []int64
-	mutex     sync.RWMutex
+	mu        sync.RWMutex
 }
 
+// creates a new Vector clock for the specified process.
 func NewVector(processID, numProcesses int) *Vector {
 	return &Vector{
 		processID: processID,
@@ -17,88 +20,114 @@ func NewVector(processID, numProcesses int) *Vector {
 	}
 }
 
-func (vector *Vector) Tick() []int64 {
-	vector.mutex.Lock()
-	defer vector.mutex.Unlock()
-	vector.clock[vector.processID]++
-	return vector.copyClock()
+// increments the clock for a local event.
+func (v *Vector) Tick() []int64 {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	v.clock[v.processID]++
+	return v.copyClock()
 }
 
-func (vector *Vector) copyClock() []int64 {
-	clockCopy := make([]int64, len(vector.clock))
-	copy(clockCopy, vector.clock)
+// increments the clock and returns timestamp for outgoing message.
+func (v *Vector) Send() []int64 {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	v.clock[v.processID]++
+	return v.copyClock()
+}
+
+// updates the clock based on received timestamp.
+// merges by taking component-wise max, then increments own counter.
+func (v *Vector) Receive(receivedClock []int64) []int64 {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+
+	for i := range v.clock {
+		v.clock[i] = max(v.clock[i], receivedClock[i])
+	}
+	v.clock[v.processID]++
+	return v.copyClock()
+}
+
+// returns a copy of the current vector clock.
+func (v *Vector) Clock() []int64 {
+	v.mu.RLock()
+	defer v.mu.RUnlock()
+	return v.copyClock()
+}
+
+// sets all components to zero.
+func (v *Vector) Reset() {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+
+	for i := range v.clock {
+		v.clock[i] = 0
+	}
+}
+
+// creates a copy of the clock slice.
+// must be called with lock held.
+func (v *Vector) copyClock() []int64 {
+	clockCopy := make([]int64, len(v.clock))
+	copy(clockCopy, v.clock)
 	return clockCopy
 }
 
-func (vector *Vector) Receive(receivedClock []int64) []int64 {
-	vector.mutex.Lock()
-	defer vector.mutex.Unlock()
-
-	for i := 0; i < len(vector.clock); i++ {
-		if receivedClock[i] > vector.clock[i] {
-			vector.clock[i] = receivedClock[i]
-		}
-	}
-	vector.clock[vector.processID]++
-	return vector.copyClock()
-}
-
-func (vector *Vector) Reset() {
-	vector.mutex.Lock()
-	defer vector.mutex.Unlock()
-
-	for i := 0; i < len(vector.clock); i++ {
-		vector.clock[i] = 0
-	}
-}
-
-func (vector *Vector) Clock() []int64 {
-	vector.mutex.RLock()
-	defer vector.mutex.RUnlock()
-	return vector.copyClock()
-}
-
-func (vector *Vector) Send() []int64 {
-	vector.mutex.Lock()
-	defer vector.mutex.Unlock()
-	vector.clock[vector.processID]++
-	return vector.copyClock()
-}
-
+// ordering represents the causal relationship between two events.
 type Ordering int
 
 const (
-	Before Ordering = iota
-	After
-	Concurrent
-	Equal
+	Before     Ordering = iota // v1 happened before v2
+	After                      // v1 happened after v2
+	Concurrent                 // v1 and v2 are concurrent
+	Equal                      // v1 and v2 are identical
 )
 
-// CompareClocks determines the causal relationship between two vector clocks
-func CompareClocks(vector1, vector2 []int64) Ordering {
-	if len(vector1) != len(vector2) {
-		panic("vectors must have the same length")
+// string returns readable representation of the ordering.
+func (o Ordering) String() string {
+	switch o {
+	case Before:
+		return "Before"
+	case After:
+		return "After"
+	case Concurrent:
+		return "Concurrent"
+	case Equal:
+		return "Equal"
+	default:
+		return "Unknown"
+	}
+}
+
+// determines the causal relationship between two vector clocks.
+// panics if vectors have different lengths.
+func CompareClocks(v1, v2 []int64) Ordering {
+	if len(v1) != len(v2) {
+		panic("vector: cannot compare clocks of different lengths")
 	}
 
-	equal := true
-	before := false
-	after := false
+	allEqual := true
+	hasLess := false
+	hasGreater := false
 
-	for i := 0; i < len(vector1); i++ {
-		if vector1[i] < vector2[i] {
-			equal = false
-			before = true
-		} else if vector1[i] > vector2[i] {
-			equal = false
-			after = true
+	for i := range v1 {
+		if v1[i] < v2[i] {
+			allEqual = false
+			hasLess = true
+		} else if v1[i] > v2[i] {
+			allEqual = false
+			hasGreater = true
 		}
 	}
 
-	if equal {
+	if allEqual {
 		return Equal
-	} else if before && !after {
+	}
+	if hasLess && !hasGreater {
 		return Before
-	} else if after && !before {
+	}
+	if hasGreater && !hasLess {
 		return After
 	}
 	return Concurrent
