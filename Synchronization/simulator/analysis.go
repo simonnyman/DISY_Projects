@@ -88,7 +88,7 @@ func AreEqual(v1, v2 []int64) bool {
 	return vector.CompareClocks(v1, v2) == vector.Equal
 }
 
-// CountCausalRelationships analyzes all causal relationships
+// analyzes all causal relationships
 func (s *Simulator) CountCausalRelationships() map[string]int {
 	before := 0
 	after := 0
@@ -120,7 +120,7 @@ func (s *Simulator) CountCausalRelationships() map[string]int {
 	}
 }
 
-// GetCommunicationMatrix returns who communicated with whom
+// returns who communicated with whom
 func (s *Simulator) GetCommunicationMatrix() [][]int {
 	matrix := make([][]int, s.NumProcesses)
 	for i := range matrix {

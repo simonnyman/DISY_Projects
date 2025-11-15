@@ -6,6 +6,7 @@ import (
 	"time"
 )
 
+// benchmarks the performance of local event generation
 func BenchmarkLocalEvent(b *testing.B) {
 	sim := NewSimulator(5)
 	b.ResetTimer()
@@ -15,6 +16,7 @@ func BenchmarkLocalEvent(b *testing.B) {
 	}
 }
 
+// benchmarks the performance of message sending operations
 func BenchmarkSendMessage(b *testing.B) {
 	sim := NewSimulator(5)
 	b.ResetTimer()
@@ -26,6 +28,7 @@ func BenchmarkSendMessage(b *testing.B) {
 	}
 }
 
+// benchmarks the performance of concurrent event detection
 func BenchmarkConcurrencyDetection(b *testing.B) {
 	sim := NewSimulator(5)
 
@@ -41,6 +44,7 @@ func BenchmarkConcurrencyDetection(b *testing.B) {
 	}
 }
 
+// benchmarks simulation performance with small number of processes
 func BenchmarkSimulation_SmallScale(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		sim := NewSimulator(5)
@@ -48,6 +52,7 @@ func BenchmarkSimulation_SmallScale(b *testing.B) {
 	}
 }
 
+// benchmarks simulation performance with larger number of processes
 func BenchmarkSimulation_LargeScale(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		sim := NewSimulator(10)
@@ -55,6 +60,7 @@ func BenchmarkSimulation_LargeScale(b *testing.B) {
 	}
 }
 
+// benchmarks vector clock overhead scaling with different process counts
 func BenchmarkVectorClockOverhead(b *testing.B) {
 	// Compare different process counts to measure vector clock scaling
 	sizes := []int{5, 10, 20, 50}

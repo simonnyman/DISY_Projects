@@ -2,7 +2,7 @@ package simulator
 
 import "fmt"
 
-// ComplexityMetrics holds overhead measurements
+// holds overhead measurements
 type ComplexityMetrics struct {
 	// Space complexity
 	LamportClockSize   int // bytes per process
@@ -16,7 +16,7 @@ type ComplexityMetrics struct {
 	MessageOverhead       float64 // ratio of control vs data
 }
 
-// AnalyzeComplexity measures time, space, and message complexities
+// measures time, space, and message complexities
 func (s *Simulator) AnalyzeComplexity() ComplexityMetrics {
 	metrics := ComplexityMetrics{}
 
@@ -54,7 +54,7 @@ func (s *Simulator) AnalyzeComplexity() ComplexityMetrics {
 	return metrics
 }
 
-// CompareAlgorithms compares Lamport vs Vector clock overhead
+// compares Lamport vs Vector clock overhead
 func (s *Simulator) CompareAlgorithms() map[string]interface{} {
 	metrics := s.AnalyzeComplexity()
 
