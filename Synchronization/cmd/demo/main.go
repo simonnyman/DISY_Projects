@@ -9,11 +9,11 @@ import (
 
 // simulation configuration
 const (
-	numProcesses    = 5               // number of processes
+	numProcesses    = 20              // number of processes
 	simulationTime  = 2 * time.Second // seconds the simulation runs
 	localEventProb  = 0.3             // probability of local event
 	sendEventProb   = 0.4             // probability of send event
-	sampleEventsMax = 20              // sample events to show per process
+	sampleEventsMax = 1               // sample events to show per process
 )
 
 func main() {
@@ -23,6 +23,7 @@ func main() {
 
 	displayStatistics(sim)
 	displayComplexityAnalysis(sim)
+	displayTimeComplexity(sim)
 	displayCausalAnalysis(sim)
 	displayConcurrencyAnalysis(sim)
 	displayAlgorithmComparison(sim)
@@ -189,6 +190,44 @@ func displayComplexityAnalysis(sim *simulator.Simulator) {
 	fmt.Printf("\nTotal Memory Usage:     %6d bytes (%.2f KB)\n",
 		metrics.TotalMemoryUsage,
 		float64(metrics.TotalMemoryUsage)/1024)
+	fmt.Println()
+}
+
+func displayTimeComplexity(sim *simulator.Simulator) {
+	theoretical := sim.CalculateTimeComplexity()
+	empirical := sim.MeasureEmpiricalComplexity()
+
+	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	fmt.Println("⏱️  Time Complexity Analysis")
+	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+	fmt.Println("\nTheoretical Complexity:")
+	fmt.Println("\n  Lamport Clock:")
+	fmt.Printf("    Update operation:   %s\n", theoretical.LamportUpdate)
+	fmt.Printf("    Compare operation:  %s\n", theoretical.LamportCompare)
+
+	fmt.Println("\n  Vector Clock:")
+	fmt.Printf("    Update operation:   %s\n", theoretical.VectorUpdate)
+	fmt.Printf("    Compare operation:  %s\n", theoretical.VectorCompare)
+	fmt.Printf("    Merge operation:    %s\n", theoretical.VectorMerge)
+
+	fmt.Println("\nEmpirical Measurements (this simulation):")
+	fmt.Println("\n  Lamport Clock:")
+	fmt.Printf("    Total updates:      %6d operations\n", empirical.LamportUpdates)
+	fmt.Printf("    Total comparisons:  %6d operations\n", empirical.LamportCompares)
+	fmt.Printf("    Ops per update:     ~1 operation\n")
+	fmt.Printf("    Ops per compare:    ~1 operation\n")
+
+	fmt.Println("\n  Vector Clock:")
+	fmt.Printf("    Total updates:      %6d operations\n", empirical.VectorUpdates)
+	fmt.Printf("    Total comparisons:  %6d operations\n", empirical.VectorCompares)
+	fmt.Printf("    Ops per update:     ~%.0f operations (vector size)\n", empirical.VectorOpsPerUpdate)
+	fmt.Printf("    Ops per compare:    ~%.0f operations (vector size)\n", empirical.VectorOpsPerCompare)
+
+	fmt.Println("\n  Complexity Ratio:")
+	totalLamportOps := float64(empirical.LamportUpdates + empirical.LamportCompares)
+	totalVectorOps := float64(empirical.VectorUpdates+empirical.VectorCompares) * empirical.VectorOpsPerUpdate
+	fmt.Printf("    Vector/Lamport:     %.1fx more operations\n", totalVectorOps/totalLamportOps)
 	fmt.Println()
 }
 

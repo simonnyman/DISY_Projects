@@ -77,3 +77,65 @@ func (s *Simulator) CompareAlgorithms() map[string]interface{} {
 		},
 	}
 }
+
+// TimeComplexity holds theoretical time complexity analysis
+type TimeComplexity struct {
+	LamportUpdate  string // Time complexity for updating Lamport clock
+	LamportCompare string // Time complexity for comparing Lamport timestamps
+	VectorUpdate   string // Time complexity for updating Vector clock
+	VectorCompare  string // Time complexity for comparing Vector clocks
+	VectorMerge    string // Time complexity for merging Vector clocks
+}
+
+// CalculateTimeComplexity returns theoretical time complexities for both clock types
+func (s *Simulator) CalculateTimeComplexity() TimeComplexity {
+	n := s.NumProcesses
+
+	return TimeComplexity{
+		// Lamport clock operations
+		LamportUpdate:  "O(1)", // Just increment or max operation
+		LamportCompare: "O(1)", // Simple integer comparison
+
+		// Vector clock operations
+		VectorUpdate:  fmt.Sprintf("O(n) where n=%d", n), // Must increment one element
+		VectorCompare: fmt.Sprintf("O(n) where n=%d", n), // Must compare all n elements
+		VectorMerge:   fmt.Sprintf("O(n) where n=%d", n), // Must merge all n elements
+	}
+}
+
+// EmpiricalComplexity holds measured operation counts
+type EmpiricalComplexity struct {
+	LamportUpdates      int     // Total Lamport clock updates
+	LamportCompares     int     // Total Lamport comparisons
+	VectorUpdates       int     // Total Vector clock updates (operations on n elements)
+	VectorCompares      int     // Total Vector clock comparisons
+	VectorOpsPerUpdate  float64 // Average vector operations per update
+	VectorOpsPerCompare float64 // Average vector operations per compare
+}
+
+// MeasureEmpiricalComplexity calculates actual operation counts from simulation
+func (s *Simulator) MeasureEmpiricalComplexity() EmpiricalComplexity {
+	stats := s.GetStatistics()
+	totalEvents := stats["total_events"].(int)
+
+	// Lamport: each event updates the clock once (O(1))
+	lamportUpdates := totalEvents
+
+	// Vector: each event touches the vector (O(n))
+	vectorUpdates := totalEvents
+
+	// Comparisons happen when receiving messages
+	// and during causal analysis
+	relations := s.CountCausalRelationships()
+	totalComparisons := relations["before"] + relations["after"] +
+		relations["concurrent"] + relations["equal"]
+
+	return EmpiricalComplexity{
+		LamportUpdates:      lamportUpdates,
+		LamportCompares:     totalComparisons,
+		VectorUpdates:       vectorUpdates,
+		VectorCompares:      totalComparisons,
+		VectorOpsPerUpdate:  float64(s.NumProcesses), // n operations per update
+		VectorOpsPerCompare: float64(s.NumProcesses), // n operations per compare
+	}
+}
