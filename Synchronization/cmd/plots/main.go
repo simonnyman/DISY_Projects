@@ -2,13 +2,16 @@ package main
 
 import (
 	"fmt"
+	"image"
 	"image/color"
+	"image/draw"
+	"image/png"
+	"os"
 	"time"
 
 	"github.com/simonnyman/DISY_Projects/Synchronization/simulator"
 	"gonum.org/v1/plot"
 	"gonum.org/v1/plot/plotter"
-	"gonum.org/v1/plot/plotutil"
 	"gonum.org/v1/plot/vg"
 )
 
@@ -17,64 +20,73 @@ const (
 	simulationTime = 1 * time.Second
 	localEventProb = 0.3
 	sendEventProb  = 0.4
-	numRuns        = 3 // number of runs per process count (for averaging)
+	numRuns        = 3 // number of runs per scenario (for averaging)
 )
 
-// process counts to test
-var processCounts = []int{2, 4, 6, 8, 10, 15, 20, 25, 30}
+// scenarios to test (varying number of processes)
+var scenarios = []struct {
+	NumProcesses int
+	Label        string
+}{
+	{2, "2 Proc"},
+	{5, "5 Proc"},
+	{10, "10 Proc"},
+	{15, "15 Proc"},
+	{20, "20 Proc"},
+	{30, "30 Proc"},
+}
 
 type SimulationResult struct {
-	NumProcesses    int
-	TotalEvents     int
-	LocalEvents     int
-	SendEvents      int
-	ReceiveEvents   int
-	ConcurrentPairs int
-	TotalPairs      int
-	LamportMemory   int
-	VectorMemory    int
-	TotalMessages   int
-	ConcurrencyRate float64
-	MemoryOverhead  float64
+	Label               string
+	NumProcesses        int
+	TotalEvents         int
+	LocalEvents         int
+	SendEvents          int
+	ReceiveEvents       int
+	CausalPairs         int // before + after relationships
+	ConcurrentPairs     int // concurrent relationships
+	TotalPairs          int
+	LamportBytesPerProc int // Space overhead per process
+	VectorBytesPerProc  int // Space overhead per process
+	LamportMsgBytes     int // Average message overhead
+	VectorMsgBytes      int // Average message overhead
+	TotalMessages       int
+	ConcurrencyRate     float64
+	CausalRate          float64
 }
 
 func main() {
-	fmt.Println("Running simulations with varying process counts...")
-	fmt.Println("This may take a minute...")
+	fmt.Println("Running simulations to compare Lamport vs Vector clocks...")
 	fmt.Println()
 
 	results := runSimulations()
 
-	fmt.Println("Generating plots...")
-	generateEventCountPlot(results)
-	generateEventTypePlot(results)
-	generateConcurrencyPlot(results)
-	generateMemoryUsagePlot(results)
-	generateMessageCountPlot(results)
-	generateMemoryOverheadPlot(results)
+	fmt.Println("Generating individual plots...")
+	generateEventStatisticsPlot(results)
+	generateSpaceOverheadPlot(results)
+	generateMessageOverheadPlot(results)
+	generateConcurrencyCausalityPlot(results)
+
+	fmt.Println("\nCombining plots into 2x2 grid...")
+	combinePlots()
 
 	fmt.Println("\n✓ All plots generated successfully!")
-	fmt.Println("\nGenerated files:")
-	fmt.Println("  - event_count.png")
-	fmt.Println("  - event_types.png")
-	fmt.Println("  - concurrency_rate.png")
-	fmt.Println("  - memory_usage.png")
-	fmt.Println("  - message_count.png")
-	fmt.Println("  - memory_overhead.png")
+	fmt.Println("\nGenerated files (in plot_pictures/):")
 }
 
 func runSimulations() []SimulationResult {
 	results := make([]SimulationResult, 0)
 
-	for _, numProcs := range processCounts {
-		fmt.Printf("Running simulation with %d processes...\n", numProcs)
+	for _, scenario := range scenarios {
+		fmt.Printf("Running simulation: %s...\n", scenario.Label)
 
 		// Run multiple times and average results
 		var avgResult SimulationResult
-		avgResult.NumProcesses = numProcs
+		avgResult.Label = scenario.Label
+		avgResult.NumProcesses = scenario.NumProcesses
 
 		for run := 0; run < numRuns; run++ {
-			sim := simulator.NewSimulator(numProcs)
+			sim := simulator.NewSimulator(scenario.NumProcesses)
 			sim.RunSimulation(simulationTime, localEventProb, sendEventProb)
 
 			stats := sim.GetStatistics()
@@ -85,15 +97,24 @@ func runSimulations() []SimulationResult {
 			avgResult.SendEvents += stats["send_events"].(int)
 			avgResult.ReceiveEvents += stats["receive_events"].(int)
 
-			concurrentPairs := sim.CountConcurrentEvents()
-			totalEvents := stats["total_events"].(int)
-			totalPairs := totalEvents * (totalEvents - 1) / 2
+			// Get causal relationships
+			relations := sim.CountCausalRelationships()
+			causalPairs := relations["before"] + relations["after"]
+			concurrentPairs := relations["concurrent"]
+			totalPairs := causalPairs + concurrentPairs + relations["equal"]
 
+			avgResult.CausalPairs += causalPairs
 			avgResult.ConcurrentPairs += concurrentPairs
 			avgResult.TotalPairs += totalPairs
 
-			avgResult.LamportMemory += metrics.LamportClockSize * numProcs
-			avgResult.VectorMemory += metrics.VectorClockSize * numProcs
+			// Space overhead per process
+			avgResult.LamportBytesPerProc += metrics.LamportClockSize
+			avgResult.VectorBytesPerProc += metrics.VectorClockSize
+
+			// Message overhead (timestamp data in each message)
+			avgResult.LamportMsgBytes += 8                          // Lamport: just the int64 timestamp
+			avgResult.VectorMsgBytes += (8 * scenario.NumProcesses) // Vector: full vector
+
 			avgResult.TotalMessages += metrics.TotalMessages
 		}
 
@@ -102,18 +123,18 @@ func runSimulations() []SimulationResult {
 		avgResult.LocalEvents /= numRuns
 		avgResult.SendEvents /= numRuns
 		avgResult.ReceiveEvents /= numRuns
+		avgResult.CausalPairs /= numRuns
 		avgResult.ConcurrentPairs /= numRuns
 		avgResult.TotalPairs /= numRuns
-		avgResult.LamportMemory /= numRuns
-		avgResult.VectorMemory /= numRuns
+		avgResult.LamportBytesPerProc /= numRuns
+		avgResult.VectorBytesPerProc /= numRuns
+		avgResult.LamportMsgBytes /= numRuns
+		avgResult.VectorMsgBytes /= numRuns
 		avgResult.TotalMessages /= numRuns
 
 		if avgResult.TotalPairs > 0 {
 			avgResult.ConcurrencyRate = float64(avgResult.ConcurrentPairs) / float64(avgResult.TotalPairs) * 100
-		}
-
-		if avgResult.LamportMemory > 0 {
-			avgResult.MemoryOverhead = float64(avgResult.VectorMemory) / float64(avgResult.LamportMemory)
+			avgResult.CausalRate = float64(avgResult.CausalPairs) / float64(avgResult.TotalPairs) * 100
 		}
 
 		results = append(results, avgResult)
@@ -122,109 +143,57 @@ func runSimulations() []SimulationResult {
 	return results
 }
 
-func generateEventCountPlot(results []SimulationResult) {
+// Plot 1: Event Statistics (Workload Overview)
+func generateEventStatisticsPlot(results []SimulationResult) {
 	p := plot.New()
-	p.Title.Text = "Total Events vs Number of Processes"
-	p.X.Label.Text = "Number of Processes"
-	p.Y.Label.Text = "Total Events"
-
-	pts := make(plotter.XYs, len(results))
-	for i, r := range results {
-		pts[i].X = float64(r.NumProcesses)
-		pts[i].Y = float64(r.TotalEvents)
-	}
-
-	line, points, err := plotter.NewLinePoints(pts)
-	if err != nil {
-		panic(err)
-	}
-	line.Color = color.RGBA{R: 255, A: 255}
-	points.Color = color.RGBA{R: 255, A: 255}
-	points.Shape = plotutil.DefaultGlyphShapes[0]
-
-	p.Add(line, points)
-	p.Add(plotter.NewGrid())
-
-	if err := p.Save(8*vg.Inch, 6*vg.Inch, "event_count.png"); err != nil {
-		panic(err)
-	}
-}
-
-func generateEventTypePlot(results []SimulationResult) {
-	p := plot.New()
-	p.Title.Text = "Event Types vs Number of Processes"
-	p.X.Label.Text = "Number of Processes"
+	p.Title.Text = "Plot 1: Event Statistics (Workload Overview)"
 	p.Y.Label.Text = "Event Count"
 	p.Legend.Top = true
 
-	localPts := make(plotter.XYs, len(results))
-	sendPts := make(plotter.XYs, len(results))
-	receivePts := make(plotter.XYs, len(results))
+	localVals := make(plotter.Values, len(results))
+	sendVals := make(plotter.Values, len(results))
+	receiveVals := make(plotter.Values, len(results))
+	labels := make([]string, len(results))
 
 	for i, r := range results {
-		localPts[i].X = float64(r.NumProcesses)
-		localPts[i].Y = float64(r.LocalEvents)
-		sendPts[i].X = float64(r.NumProcesses)
-		sendPts[i].Y = float64(r.SendEvents)
-		receivePts[i].X = float64(r.NumProcesses)
-		receivePts[i].Y = float64(r.ReceiveEvents)
+		localVals[i] = float64(r.LocalEvents)
+		sendVals[i] = float64(r.SendEvents)
+		receiveVals[i] = float64(r.ReceiveEvents)
+		labels[i] = r.Label
 	}
 
-	localLine, localPoints, _ := plotter.NewLinePoints(localPts)
-	localLine.Color = color.RGBA{R: 0, G: 255, B: 0, A: 255}
-	localPoints.Color = color.RGBA{R: 0, G: 255, B: 0, A: 255}
+	width := vg.Points(20)
 
-	sendLine, sendPoints, _ := plotter.NewLinePoints(sendPts)
-	sendLine.Color = color.RGBA{R: 255, G: 0, B: 0, A: 255}
-	sendPoints.Color = color.RGBA{R: 255, G: 0, B: 0, A: 255}
+	// Create stacked bar chart effect
+	localBars, _ := plotter.NewBarChart(localVals, width)
+	localBars.Color = color.RGBA{R: 76, G: 175, B: 80, A: 255}
+	localBars.Offset = -width
 
-	receiveLine, receivePoints, _ := plotter.NewLinePoints(receivePts)
-	receiveLine.Color = color.RGBA{R: 0, G: 0, B: 255, A: 255}
-	receivePoints.Color = color.RGBA{R: 0, G: 0, B: 255, A: 255}
+	sendBars, _ := plotter.NewBarChart(sendVals, width)
+	sendBars.Color = color.RGBA{R: 244, G: 67, B: 54, A: 255}
 
-	p.Add(localLine, localPoints, sendLine, sendPoints, receiveLine, receivePoints)
-	p.Add(plotter.NewGrid())
-	p.Legend.Add("Local Events", localLine, localPoints)
-	p.Legend.Add("Send Events", sendLine, sendPoints)
-	p.Legend.Add("Receive Events", receiveLine, receivePoints)
+	receiveBars, _ := plotter.NewBarChart(receiveVals, width)
+	receiveBars.Color = color.RGBA{R: 33, G: 150, B: 243, A: 255}
+	receiveBars.Offset = width
 
-	if err := p.Save(8*vg.Inch, 6*vg.Inch, "event_types.png"); err != nil {
+	p.Add(localBars, sendBars, receiveBars)
+	p.Legend.Add("Local Events", localBars)
+	p.Legend.Add("Send Events", sendBars)
+	p.Legend.Add("Receive Events", receiveBars)
+	p.NominalX(labels...)
+	p.X.Label.Text = "Scenario"
+
+	if err := p.Save(8*vg.Inch, 6*vg.Inch, "plot_pictures/1_event_statistics.png"); err != nil {
 		panic(err)
 	}
 }
 
-func generateConcurrencyPlot(results []SimulationResult) {
+// Plot 2: Space Overhead vs Number of Processes
+func generateSpaceOverheadPlot(results []SimulationResult) {
 	p := plot.New()
-	p.Title.Text = "Concurrency Rate vs Number of Processes"
+	p.Title.Text = "Plot 2: Space Overhead (Bytes per Process)"
 	p.X.Label.Text = "Number of Processes"
-	p.Y.Label.Text = "Concurrency Rate (%)"
-
-	pts := make(plotter.XYs, len(results))
-	for i, r := range results {
-		pts[i].X = float64(r.NumProcesses)
-		pts[i].Y = r.ConcurrencyRate
-	}
-
-	line, points, err := plotter.NewLinePoints(pts)
-	if err != nil {
-		panic(err)
-	}
-	line.Color = color.RGBA{R: 128, G: 0, B: 128, A: 255}
-	points.Color = color.RGBA{R: 128, G: 0, B: 128, A: 255}
-
-	p.Add(line, points)
-	p.Add(plotter.NewGrid())
-
-	if err := p.Save(8*vg.Inch, 6*vg.Inch, "concurrency_rate.png"); err != nil {
-		panic(err)
-	}
-}
-
-func generateMemoryUsagePlot(results []SimulationResult) {
-	p := plot.New()
-	p.Title.Text = "Memory Usage vs Number of Processes"
-	p.X.Label.Text = "Number of Processes"
-	p.Y.Label.Text = "Memory (bytes)"
+	p.Y.Label.Text = "Timestamp Size (bytes)"
 	p.Legend.Top = true
 
 	lamportPts := make(plotter.XYs, len(results))
@@ -232,79 +201,185 @@ func generateMemoryUsagePlot(results []SimulationResult) {
 
 	for i, r := range results {
 		lamportPts[i].X = float64(r.NumProcesses)
-		lamportPts[i].Y = float64(r.LamportMemory)
+		lamportPts[i].Y = float64(r.LamportBytesPerProc)
 		vectorPts[i].X = float64(r.NumProcesses)
-		vectorPts[i].Y = float64(r.VectorMemory)
+		vectorPts[i].Y = float64(r.VectorBytesPerProc)
 	}
 
 	lamportLine, lamportPoints, _ := plotter.NewLinePoints(lamportPts)
-	lamportLine.Color = color.RGBA{R: 255, G: 165, B: 0, A: 255}
-	lamportPoints.Color = color.RGBA{R: 255, G: 165, B: 0, A: 255}
+	lamportLine.Color = color.RGBA{R: 255, G: 152, B: 0, A: 255}
+	lamportLine.Width = vg.Points(2)
+	lamportPoints.Color = color.RGBA{R: 255, G: 152, B: 0, A: 255}
+	lamportPoints.Radius = vg.Points(4)
 
 	vectorLine, vectorPoints, _ := plotter.NewLinePoints(vectorPts)
-	vectorLine.Color = color.RGBA{R: 0, G: 128, B: 255, A: 255}
-	vectorPoints.Color = color.RGBA{R: 0, G: 128, B: 255, A: 255}
+	vectorLine.Color = color.RGBA{R: 156, G: 39, B: 176, A: 255}
+	vectorLine.Width = vg.Points(2)
+	vectorPoints.Color = color.RGBA{R: 156, G: 39, B: 176, A: 255}
+	vectorPoints.Radius = vg.Points(4)
 
 	p.Add(lamportLine, lamportPoints, vectorLine, vectorPoints)
 	p.Add(plotter.NewGrid())
-	p.Legend.Add("Lamport Clock", lamportLine, lamportPoints)
-	p.Legend.Add("Vector Clock", vectorLine, vectorPoints)
+	p.Legend.Add("Lamport (O(1) - constant)", lamportLine, lamportPoints)
+	p.Legend.Add("Vector (O(n) - linear)", vectorLine, vectorPoints)
 
-	if err := p.Save(8*vg.Inch, 6*vg.Inch, "memory_usage.png"); err != nil {
+	if err := p.Save(8*vg.Inch, 6*vg.Inch, "plot_pictures/2_space_overhead.png"); err != nil {
 		panic(err)
 	}
 }
 
-func generateMessageCountPlot(results []SimulationResult) {
+// Plot 3: Time Complexity vs Number of Processes
+func generateMessageOverheadPlot(results []SimulationResult) {
 	p := plot.New()
-	p.Title.Text = "Total Messages vs Number of Processes"
+	p.Title.Text = "Plot 3: Time Complexity vs Number of Processes"
 	p.X.Label.Text = "Number of Processes"
-	p.Y.Label.Text = "Total Messages Sent"
+	p.Y.Label.Text = "Operations per Event"
+	p.Legend.Top = true
 
-	pts := make(plotter.XYs, len(results))
+	lamportPts := make(plotter.XYs, len(results))
+	vectorPts := make(plotter.XYs, len(results))
+
 	for i, r := range results {
-		pts[i].X = float64(r.NumProcesses)
-		pts[i].Y = float64(r.TotalMessages)
+		// Operations per event: for updates and comparisons
+		// Lamport: 1 operation per update/compare (O(1))
+		// Vector: n operations per update/compare (O(n))
+		lamportOpsPerEvent := 1.0
+		vectorOpsPerEvent := float64(r.NumProcesses)
+
+		lamportPts[i].X = float64(r.NumProcesses)
+		lamportPts[i].Y = lamportOpsPerEvent
+		vectorPts[i].X = float64(r.NumProcesses)
+		vectorPts[i].Y = vectorOpsPerEvent
 	}
 
-	line, points, err := plotter.NewLinePoints(pts)
-	if err != nil {
+	lamportLine, lamportPoints, _ := plotter.NewLinePoints(lamportPts)
+	lamportLine.Color = color.RGBA{R: 255, G: 152, B: 0, A: 255}
+	lamportLine.Width = vg.Points(2)
+	lamportPoints.Color = color.RGBA{R: 255, G: 152, B: 0, A: 255}
+	lamportPoints.Radius = vg.Points(4)
+
+	vectorLine, vectorPoints, _ := plotter.NewLinePoints(vectorPts)
+	vectorLine.Color = color.RGBA{R: 156, G: 39, B: 176, A: 255}
+	vectorLine.Width = vg.Points(2)
+	vectorPoints.Color = color.RGBA{R: 156, G: 39, B: 176, A: 255}
+	vectorPoints.Radius = vg.Points(4)
+
+	p.Add(lamportLine, lamportPoints, vectorLine, vectorPoints)
+	p.Add(plotter.NewGrid())
+	p.Legend.Add("Lamport: O(1) constant", lamportLine, lamportPoints)
+	p.Legend.Add("Vector: O(n) linear", vectorLine, vectorPoints)
+
+	if err := p.Save(8*vg.Inch, 6*vg.Inch, "plot_pictures/3_time_complexity.png"); err != nil {
 		panic(err)
 	}
-	line.Color = color.RGBA{R: 255, G: 20, B: 147, A: 255}
-	points.Color = color.RGBA{R: 255, G: 20, B: 147, A: 255}
+} // Plot 4: Concurrency & Causality Breakdown
+func generateConcurrencyCausalityPlot(results []SimulationResult) {
+	p := plot.New()
+	p.Title.Text = "Plot 4: Correctness Trade-off: Concurrency Detected by Each Algorithm"
+	p.Y.Label.Text = "Concurrent Event Pairs (Percentage)"
+	p.X.Label.Text = "Scenario"
+	p.Legend.Top = true
 
-	p.Add(line, points)
-	p.Add(plotter.NewGrid())
+	lamportConcurrent := make(plotter.Values, len(results))
+	vectorConcurrent := make(plotter.Values, len(results))
+	labels := make([]string, len(results))
 
-	if err := p.Save(8*vg.Inch, 6*vg.Inch, "message_count.png"); err != nil {
+	for i, r := range results {
+		lamportConcurrent[i] = 0.0
+
+		vectorConcurrent[i] = r.ConcurrencyRate
+		labels[i] = r.Label
+	}
+
+	width := vg.Points(25)
+
+	lamportBars, _ := plotter.NewBarChart(lamportConcurrent, width)
+	lamportBars.Color = color.RGBA{R: 255, G: 152, B: 0, A: 255} // Orange
+	lamportBars.Offset = -width / 2
+
+	vectorBars, _ := plotter.NewBarChart(vectorConcurrent, width)
+	vectorBars.Color = color.RGBA{R: 156, G: 39, B: 176, A: 255} // Purple
+	vectorBars.Offset = width / 2
+
+	p.Add(lamportBars, vectorBars)
+	p.Legend.Add("Lamport: Concurrent (≈0%)", lamportBars)
+	p.Legend.Add("Vector: Concurrent", vectorBars)
+	p.NominalX(labels...)
+
+	if err := p.Save(8*vg.Inch, 6*vg.Inch, "plot_pictures/4_concurrency_causality.png"); err != nil {
 		panic(err)
 	}
 }
 
-func generateMemoryOverheadPlot(results []SimulationResult) {
-	p := plot.New()
-	p.Title.Text = "Vector Clock Memory Overhead vs Number of Processes"
-	p.X.Label.Text = "Number of Processes"
-	p.Y.Label.Text = "Overhead Ratio (Vector/Lamport)"
-
-	pts := make(plotter.XYs, len(results))
-	for i, r := range results {
-		pts[i].X = float64(r.NumProcesses)
-		pts[i].Y = r.MemoryOverhead
+// combinePlots combines the 4 individual plots into a 2x2 grid
+func combinePlots() {
+	// Define the 4 plots to combine (2x2 grid of trade-off analysis)
+	plotFiles := []string{
+		"plot_pictures/1_event_statistics.png",
+		"plot_pictures/2_space_overhead.png",
+		"plot_pictures/3_time_complexity.png",
+		"plot_pictures/4_concurrency_causality.png",
 	}
 
-	line, points, err := plotter.NewLinePoints(pts)
+	// Create a 2x2 grid
+	rows := 2
+	cols := 2
+
+	// Load all images
+	images := make([]image.Image, len(plotFiles))
+	for i, file := range plotFiles {
+		f, err := os.Open(file)
+		if err != nil {
+			panic(err)
+		}
+		defer f.Close()
+
+		img, err := png.Decode(f)
+		if err != nil {
+			panic(err)
+		}
+		images[i] = img
+	}
+
+	// Get dimensions from first image
+	imgWidth := images[0].Bounds().Dx()
+	imgHeight := images[0].Bounds().Dy()
+
+	// Create combined image
+	combined := image.NewRGBA(image.Rect(0, 0, imgWidth*cols, imgHeight*rows))
+
+	// Draw images in 2x2 grid
+	positions := []image.Point{
+		{0, 0},                // Top-left
+		{imgWidth, 0},         // Top-right
+		{0, imgHeight},        // Bottom-left
+		{imgWidth, imgHeight}, // Bottom-right
+	}
+
+	for i, img := range images {
+		draw.Draw(combined, image.Rectangle{
+			Min: positions[i],
+			Max: positions[i].Add(image.Point{imgWidth, imgHeight}),
+		}, img, image.Point{0, 0}, draw.Src)
+	}
+
+	// Save the combined image
+	outFile, err := os.Create("plot_pictures/lamport_vs_vector_tradeoffs.png")
 	if err != nil {
 		panic(err)
 	}
-	line.Color = color.RGBA{R: 220, G: 20, B: 60, A: 255}
-	points.Color = color.RGBA{R: 220, G: 20, B: 60, A: 255}
+	defer outFile.Close()
 
-	p.Add(line, points)
-	p.Add(plotter.NewGrid())
-
-	if err := p.Save(8*vg.Inch, 6*vg.Inch, "memory_overhead.png"); err != nil {
+	if err := png.Encode(outFile, combined); err != nil {
 		panic(err)
 	}
+
+	fmt.Println("  Layout (2x2 grid):")
+	fmt.Println("    ┌──────────────────────────┬──────────────────────────┐")
+	fmt.Println("    │ 1. Event Statistics      │ 2. Space Overhead        │")
+	fmt.Println("    │    (Workload)            │    (O(1) vs O(n))        │")
+	fmt.Println("    ├──────────────────────────┼──────────────────────────┤")
+	fmt.Println("    │ 3. Time Complexity       │ 4. Concurrency Detection │")
+	fmt.Println("    │    (O(1) vs O(n))        │    (Correctness)         │")
+	fmt.Println("    └──────────────────────────┴──────────────────────────┘")
 }

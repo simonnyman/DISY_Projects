@@ -11,9 +11,9 @@ import (
 const (
 	numProcesses    = 20              // number of processes
 	simulationTime  = 2 * time.Second // seconds the simulation runs
-	localEventProb  = 0.3             // probability of local event
-	sendEventProb   = 0.4             // probability of send event
-	sampleEventsMax = 1               // sample events to show per process
+	localEventProb  = 0.5             // probability of local event
+	sendEventProb   = 0.8             // probability of send event
+	sampleEventsMax = 5               // sample events to show per process
 )
 
 func main() {
@@ -122,7 +122,7 @@ func displayCommunicationMatrix(sim *simulator.Simulator) {
 	matrix := sim.GetCommunicationMatrix()
 
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-	fmt.Println("📡 Communication Matrix (messages sent)")
+	fmt.Println("Communication Matrix (messages sent)")
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 	fmt.Print("     ")
 	for i := 0; i < numProcesses; i++ {
@@ -148,7 +148,7 @@ func displayAlgorithmComparison(sim *simulator.Simulator) {
 	comparison := sim.CompareAlgorithms()
 
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-	fmt.Println("⚖️  Lamport vs Vector Clock Comparison")
+	fmt.Println("Lamport vs Vector Clock Comparison")
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 	fmt.Println("Lamport Timestamp:")
 	lamport := comparison["lamport"].(map[string]interface{})
@@ -175,7 +175,7 @@ func displayComplexityAnalysis(sim *simulator.Simulator) {
 	metrics := sim.AnalyzeComplexity()
 
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-	fmt.Println("⚡ Complexity Analysis")
+	fmt.Println("Complexity Analysis")
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 	fmt.Printf("Space Complexity:\n")
 	fmt.Printf("  Lamport per process:  %6d bytes\n", metrics.LamportClockSize)
@@ -185,8 +185,11 @@ func displayComplexityAnalysis(sim *simulator.Simulator) {
 	fmt.Printf("\nMessage Complexity:\n")
 	fmt.Printf("  Total messages:       %6d\n", metrics.TotalMessages)
 	fmt.Printf("  Avg per process:      %6d\n", metrics.AverageMessagePerProc)
+	fmt.Printf("  Lamport msg overhead: %6d bytes\n", metrics.LamportClockSize)
+	fmt.Printf("  Vector msg overhead:  %6d bytes (%.1fx overhead)\n",
+		metrics.VectorClockSize,
+		float64(metrics.VectorClockSize)/float64(metrics.LamportClockSize))
 	fmt.Printf("  Avg message size:     %6d bytes\n", metrics.AverageMessageSize)
-	fmt.Printf("  Vector overhead:      %.1fx\n", metrics.MessageOverhead+1)
 	fmt.Printf("\nTotal Memory Usage:     %6d bytes (%.2f KB)\n",
 		metrics.TotalMemoryUsage,
 		float64(metrics.TotalMemoryUsage)/1024)
@@ -198,7 +201,7 @@ func displayTimeComplexity(sim *simulator.Simulator) {
 	empirical := sim.MeasureEmpiricalComplexity()
 
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-	fmt.Println("⏱️  Time Complexity Analysis")
+	fmt.Println("Time Complexity Analysis")
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
 	fmt.Println("\nTheoretical Complexity:")

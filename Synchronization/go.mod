@@ -2,6 +2,8 @@ module github.com/simonnyman/DISY_Projects/Synchronization
 
 go 1.23.0
 
+require gonum.org/v1/plot v0.16.0
+
 require (
 	codeberg.org/go-fonts/liberation v0.5.0 // indirect
 	codeberg.org/go-latex/latex v0.1.0 // indirect
@@ -13,5 +15,4 @@ require (
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	golang.org/x/image v0.25.0 // indirect
 	golang.org/x/text v0.23.0 // indirect
-	gonum.org/v1/plot v0.16.0 // indirect
 )
