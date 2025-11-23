@@ -9,7 +9,7 @@ import (
 
 // simulation configuration
 const (
-	numProcesses    = 20              // number of processes
+	numProcesses    = 10              // number of processes
 	simulationTime  = 2 * time.Second // seconds the simulation runs
 	localEventProb  = 0.5             // probability of local event
 	sendEventProb   = 0.8             // probability of send event
@@ -24,7 +24,6 @@ func main() {
 	displayStatistics(sim)
 	displayComplexityAnalysis(sim)
 	displayTimeComplexity(sim)
-	displayCausalAnalysis(sim)
 	displayConcurrencyAnalysis(sim)
 	displayAlgorithmComparison(sim)
 	displayCommunicationMatrix(sim)
@@ -152,22 +151,16 @@ func displayAlgorithmComparison(sim *simulator.Simulator) {
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 	fmt.Println("Lamport Timestamp:")
 	lamport := comparison["lamport"].(map[string]interface{})
-	fmt.Printf("  ✓ Space per process:  %d bytes\n", lamport["space_per_process"])
-	fmt.Printf("  ✓ Message overhead:   %d bytes\n", lamport["message_overhead"])
-	fmt.Printf("  ✗ Concurrent detect:  %v\n", lamport["can_detect_concurrent"])
+	fmt.Printf("  Space per process:  %d bytes\n", lamport["space_per_process"])
+	fmt.Printf("  Message overhead:   %d bytes\n", lamport["message_overhead"])
+	fmt.Printf("  Concurrent detect:  %v\n", lamport["can_detect_concurrent"])
 
 	fmt.Println("\nVector Clock:")
 	vec := comparison["vector"].(map[string]interface{})
-	fmt.Printf("  ✓ Space per process:  %d bytes\n", vec["space_per_process"])
-	fmt.Printf("  ✓ Message overhead:   %d bytes\n", vec["message_overhead"])
-	fmt.Printf("  ✓ Concurrent detect:  %v\n", vec["can_detect_concurrent"])
-	fmt.Printf("  ℹ  Overhead ratio:     %.1fx\n", vec["overhead_ratio"])
-
-	fmt.Println("\nTrade-off Summary:")
-	tradeoff := comparison["tradeoff"].(map[string]interface{})
-	fmt.Printf("  • Space increase:     %s\n", tradeoff["space_increase"])
-	fmt.Printf("  • Message increase:   %s\n", tradeoff["message_increase"])
-	fmt.Printf("  • Benefit:            %s\n", tradeoff["concurrent_detection"])
+	fmt.Printf("  Space per process:  %d bytes\n", vec["space_per_process"])
+	fmt.Printf("  Message overhead:   %d bytes\n", vec["message_overhead"])
+	fmt.Printf("  Concurrent detect:  %v\n", vec["can_detect_concurrent"])
+	fmt.Printf("  Overhead ratio:     %.1fx\n", vec["overhead_ratio"])
 	fmt.Println()
 }
 
@@ -197,59 +190,24 @@ func displayComplexityAnalysis(sim *simulator.Simulator) {
 }
 
 func displayTimeComplexity(sim *simulator.Simulator) {
-	theoretical := sim.CalculateTimeComplexity()
 	empirical := sim.MeasureEmpiricalComplexity()
 
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 	fmt.Println("Time Complexity Analysis")
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
-	fmt.Println("\nTheoretical Complexity:")
-	fmt.Println("\n  Lamport Clock:")
-	fmt.Printf("    Update operation:   %s\n", theoretical.LamportUpdate)
-	fmt.Printf("    Compare operation:  %s\n", theoretical.LamportCompare)
-
-	fmt.Println("\n  Vector Clock:")
-	fmt.Printf("    Update operation:   %s\n", theoretical.VectorUpdate)
-	fmt.Printf("    Compare operation:  %s\n", theoretical.VectorCompare)
-	fmt.Printf("    Merge operation:    %s\n", theoretical.VectorMerge)
-
-	fmt.Println("\nEmpirical Measurements (this simulation):")
 	fmt.Println("\n  Lamport Clock:")
 	fmt.Printf("    Total updates:      %6d operations\n", empirical.LamportUpdates)
-	fmt.Printf("    Total comparisons:  %6d operations\n", empirical.LamportCompares)
-	fmt.Printf("    Ops per update:     ~1 operation\n")
-	fmt.Printf("    Ops per compare:    ~1 operation\n")
+	fmt.Printf("    Ops per update:     ~1 operation (O(1))\n")
 
 	fmt.Println("\n  Vector Clock:")
 	fmt.Printf("    Total updates:      %6d operations\n", empirical.VectorUpdates)
-	fmt.Printf("    Total comparisons:  %6d operations\n", empirical.VectorCompares)
-	fmt.Printf("    Ops per update:     ~%.0f operations (vector size)\n", empirical.VectorOpsPerUpdate)
-	fmt.Printf("    Ops per compare:    ~%.0f operations (vector size)\n", empirical.VectorOpsPerCompare)
+	fmt.Printf("    Ops per update:     ~%.0f operations (O(n))\n", empirical.VectorOpsPerUpdate)
 
 	fmt.Println("\n  Complexity Ratio:")
-	totalLamportOps := float64(empirical.LamportUpdates + empirical.LamportCompares)
-	totalVectorOps := float64(empirical.VectorUpdates+empirical.VectorCompares) * empirical.VectorOpsPerUpdate
+	totalLamportOps := float64(empirical.LamportUpdates)
+	totalVectorOps := float64(empirical.VectorUpdates) * empirical.VectorOpsPerUpdate
 	fmt.Printf("    Vector/Lamport:     %.1fx more operations\n", totalVectorOps/totalLamportOps)
-	fmt.Println()
-}
-
-func displayCausalAnalysis(sim *simulator.Simulator) {
-	relations := sim.CountCausalRelationships()
-	total := relations["before"] + relations["after"] + relations["concurrent"] + relations["equal"]
-
-	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-	fmt.Println("🔗 Causal Relationship Analysis")
-	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-	fmt.Printf("Before relationships:     %6d (%.1f%%)\n",
-		relations["before"], percentage(relations["before"], total))
-	fmt.Printf("After relationships:      %6d (%.1f%%)\n",
-		relations["after"], percentage(relations["after"], total))
-	fmt.Printf("Concurrent relationships: %6d (%.1f%%)\n",
-		relations["concurrent"], percentage(relations["concurrent"], total))
-	fmt.Printf("Equal timestamps:         %6d (%.1f%%)\n",
-		relations["equal"], percentage(relations["equal"], total))
-	fmt.Printf("Total event pairs:        %6d\n", total)
 	fmt.Println()
 }
 

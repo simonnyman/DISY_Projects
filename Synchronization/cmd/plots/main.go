@@ -43,7 +43,6 @@ type SimulationResult struct {
 	LocalEvents         int
 	SendEvents          int
 	ReceiveEvents       int
-	CausalPairs         int // before + after relationships
 	ConcurrentPairs     int // concurrent relationships
 	TotalPairs          int
 	LamportBytesPerProc int // Space overhead per process
@@ -52,7 +51,6 @@ type SimulationResult struct {
 	VectorMsgBytes      int // Average message overhead
 	TotalMessages       int
 	ConcurrencyRate     float64
-	CausalRate          float64
 }
 
 func main() {
@@ -97,13 +95,11 @@ func runSimulations() []SimulationResult {
 			avgResult.SendEvents += stats["send_events"].(int)
 			avgResult.ReceiveEvents += stats["receive_events"].(int)
 
-			// Get causal relationships
-			relations := sim.CountCausalRelationships()
-			causalPairs := relations["before"] + relations["after"]
-			concurrentPairs := relations["concurrent"]
-			totalPairs := causalPairs + concurrentPairs + relations["equal"]
+			// Count concurrent events
+			concurrentPairs := sim.CountConcurrentEvents()
+			totalEvents := stats["total_events"].(int)
+			totalPairs := totalEvents * (totalEvents - 1) / 2
 
-			avgResult.CausalPairs += causalPairs
 			avgResult.ConcurrentPairs += concurrentPairs
 			avgResult.TotalPairs += totalPairs
 
@@ -123,7 +119,6 @@ func runSimulations() []SimulationResult {
 		avgResult.LocalEvents /= numRuns
 		avgResult.SendEvents /= numRuns
 		avgResult.ReceiveEvents /= numRuns
-		avgResult.CausalPairs /= numRuns
 		avgResult.ConcurrentPairs /= numRuns
 		avgResult.TotalPairs /= numRuns
 		avgResult.LamportBytesPerProc /= numRuns
@@ -134,7 +129,6 @@ func runSimulations() []SimulationResult {
 
 		if avgResult.TotalPairs > 0 {
 			avgResult.ConcurrencyRate = float64(avgResult.ConcurrentPairs) / float64(avgResult.TotalPairs) * 100
-			avgResult.CausalRate = float64(avgResult.CausalPairs) / float64(avgResult.TotalPairs) * 100
 		}
 
 		results = append(results, avgResult)
